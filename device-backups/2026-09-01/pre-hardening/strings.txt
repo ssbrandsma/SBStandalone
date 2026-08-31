@@ -73,11 +73,3 @@ STANDALONE_RADIO_STATE_STOPPED
 STANDALONE_RADIO_STATE_FAILED
 	EN	Connection failed
 	NL	Verbinding mislukt
-
-STANDALONE_RADIO_STATE_CONNECTION_LOST
-	EN	Connection lost
-	NL	Verbinding verbroken
-
-STANDALONE_RADIO_STATE_RECONNECTING
-	EN	Reconnecting...
-	NL	Opnieuw verbinden...
