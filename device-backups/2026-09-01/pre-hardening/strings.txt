@@ -1,0 +1,75 @@
+STANDALONE_RADIO
+	EN	Standalone Radio
+	NL	Zelfstandige Radio
+
+STANDALONE_RADIO_NPO1
+	EN	NPO Radio 1
+	NL	NPO Radio 1
+
+STANDALONE_RADIO_NPO2
+	EN	NPO Radio 2
+	NL	NPO Radio 2
+
+STANDALONE_RADIO_538
+	EN	Radio 538
+	NL	Radio 538
+
+STANDALONE_RADIO_10
+	EN	Radio 10
+	NL	Radio 10
+
+STANDALONE_RADIO_VERONICA
+	EN	Radio Veronica
+	NL	Radio Veronica
+
+STANDALONE_RADIO_BNR
+	EN	BNR Nieuwsradio
+	NL	BNR Nieuwsradio
+
+STANDALONE_RADIO_STOP
+	EN	Stop
+	NL	Stop
+
+STANDALONE_RADIO_CONNECTING
+	EN	Connecting...
+	NL	Verbinden...
+
+STANDALONE_RADIO_STOPPING
+	EN	Stopping...
+	NL	Stoppen...
+
+STANDALONE_RADIO_FAILED
+	EN	Playback failed
+	NL	Afspelen mislukt
+
+STANDALONE_RADIO_STATUS_IDLE
+	EN	Standalone Mode: presets 1-6 ready
+	NL	Zelfstandige modus: voorkeuze 1-6 klaar
+
+STANDALONE_RADIO_STATUS_PLAYING
+	EN	Playing: %s
+	NL	Speelt: %s
+
+STANDALONE_RADIO_STATUS_STOPPED
+	EN	Stopped: %s
+	NL	Gestopt: %s
+
+STANDALONE_RADIO_STATE_RESOLVING
+	EN	Resolving...
+	NL	Zoeken...
+
+STANDALONE_RADIO_STATE_CONNECTING
+	EN	Connecting...
+	NL	Verbinden...
+
+STANDALONE_RADIO_STATE_PLAYING
+	EN	Playing
+	NL	Speelt
+
+STANDALONE_RADIO_STATE_STOPPED
+	EN	Stopped
+	NL	Gestopt
+
+STANDALONE_RADIO_STATE_FAILED
+	EN	Connection failed
+	NL	Verbinding mislukt

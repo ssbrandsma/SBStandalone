@@ -1,0 +1,74 @@
+local ipairs, tonumber, type = ipairs, tonumber, type
+
+local string = require("string")
+
+module(...)
+
+
+local stations = {
+	{ id = "npo1", nameToken = "STANDALONE_RADIO_NPO1", url = "http://icecast.omroep.nl/radio1-bb-mp3", logo = "images/npo1.png", preset = 1 },
+	{ id = "npo2", nameToken = "STANDALONE_RADIO_NPO2", url = "http://icecast.omroep.nl/radio2-bb-mp3", logo = "images/npo2.png", preset = 2 },
+	{ id = "radio538", nameToken = "STANDALONE_RADIO_538", url = "http://28513.live.streamtheworld.com/RADIO538.mp3", logo = "images/radio538.png", preset = 3 },
+	{ id = "radio10", nameToken = "STANDALONE_RADIO_10", url = "http://25683.live.streamtheworld.com/RADIO10.mp3", logo = "images/radio10.png", preset = 4 },
+	{ id = "veronica", nameToken = "STANDALONE_RADIO_VERONICA", url = "http://27903.live.streamtheworld.com/VERONICA.mp3", logo = "images/veronica.png", preset = 5 },
+	{ id = "bnr", nameToken = "STANDALONE_RADIO_BNR", url = "http://stream.bnr.nl/bnr_mp3_128_20", logo = "images/bnr.png", preset = 6 },
+}
+
+local byId = {}
+local byPreset = {}
+
+
+local function parseUrl(station)
+	local host, port, path = string.match(station.url, "^http://([^/:]+):?(%d*)(/.*)$")
+	if not host then
+		return nil, "URL must be an HTTP URL with a path"
+	end
+
+	station.host = host
+	station.port = (port == "" and 80) or tonumber(port)
+	station.path = path
+	return true
+end
+
+
+function validate(log)
+	byId = {}
+	byPreset = {}
+	for _, station in ipairs(stations) do
+		local valid = type(station.id) == "string" and station.id ~= ""
+			and type(station.nameToken) == "string" and station.nameToken ~= ""
+			and type(station.logo) == "string" and station.logo ~= ""
+			and type(station.preset) == "number"
+			and type(station.url) == "string"
+		if not valid or byId[station.id] or byPreset[station.preset] then
+			log:error("StandaloneRadio: invalid or duplicate station configuration")
+			return false
+		end
+
+		local parsed, err = parseUrl(station)
+		if not parsed then
+			log:error("StandaloneRadio: invalid station URL for ", station.id, ": ", err)
+			return false
+		end
+
+		byId[station.id] = station
+		byPreset[station.preset] = station
+	end
+
+	return true
+end
+
+
+function all()
+	return stations
+end
+
+
+function getById(id)
+	return byId[id]
+end
+
+
+function getByPreset(preset)
+	return byPreset[preset]
+end
