@@ -95,7 +95,7 @@ end
 
 
 function StreamPlayer:_handleMetadata(data)
-	if not self.desiredStation or not self.isPlaying or type(data) ~= "string" then
+	if not self.desiredStation or not self.playbackActive or type(data) ~= "string" then
 		return
 	end
 
@@ -152,7 +152,7 @@ function StreamPlayer:_handleDisconnect(reason, flush)
 
 	local station = self.desiredStation
 	local generation = self.generation
-	self.isPlaying = false
+	self.playbackActive = false
 	self.currentMetadata = nil
 	self:_notifyState(station, "CONNECTION_LOST", false)
 	self.log:warn("StandaloneRadio: stream disconnected ", tostring(reason))
@@ -177,7 +177,7 @@ function StreamPlayer:_installHooks(playback)
 		end
 
 		if self.desiredStation and not self.intentionalStop then
-			self.isPlaying = true
+			self.playbackActive = true
 			self.retryIndex = 1
 			self:_notifyState(self.desiredStation, "PLAYING", false)
 			self.callbacks.onConnected(self.desiredStation)
@@ -211,7 +211,7 @@ function StreamPlayer:_begin(station, reconnect)
 	self.desiredStation = station
 	self.pendingStation = station
 	self.currentMetadata = nil
-	self.isPlaying = false
+	self.playbackActive = false
 	if not reconnect then
 		self.retryIndex = 1
 		self.lastStation = station
@@ -290,7 +290,7 @@ function StreamPlayer:stop()
 	self:_cancelReconnect()
 	self.pendingStation = nil
 	self.currentMetadata = nil
-	self.isPlaying = false
+	self.playbackActive = false
 	self:_stopPlayback()
 	if self.lastStation then
 		self:_notifyState(self.lastStation, "STOPPED", false)
@@ -321,5 +321,5 @@ end
 
 
 function StreamPlayer:isPlaying()
-	return self.isPlaying
+	return self.playbackActive
 end
