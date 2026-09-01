@@ -1,13 +1,8 @@
-local pcall, setmetatable, tonumber, tostring, type = pcall, setmetatable, tonumber, tostring, type
+local setmetatable, tonumber, tostring, type = setmetatable, tonumber, tostring, type
 
 local string = require("string")
 
 local Process = require("jive.net.Process")
-
-local ok, DNS = pcall(require, "jive.net.DNS")
-if not ok then
-	DNS = nil
-end
 
 local jnt = jnt
 
@@ -16,23 +11,6 @@ module(...)
 
 local Resolver = {}
 Resolver.__index = Resolver
-
-
-local function createNativeDns(log)
-	if not DNS then
-		return nil
-	end
-
-	local okCreate, dnsOrErr = pcall(function()
-		return DNS(jnt)
-	end)
-	if okCreate then
-		return dnsOrErr
-	end
-
-	log:warn("StandaloneRadio: native DNS setup failed: ", tostring(dnsOrErr))
-	return nil
-end
 
 
 local function isValidHost(host)
@@ -79,7 +57,6 @@ end
 function new(options)
 	return setmetatable({
 		log = options.log,
-		dns = createNativeDns(options.log),
 	}, Resolver)
 end
 
@@ -113,23 +90,5 @@ function Resolver:resolve(host, callback)
 		return
 	end
 
-	if not self.dns then
-		self.log:warn("StandaloneRadio: native DNS unavailable; using nslookup for ", host)
-		self:_resolveWithNslookup(host, "native DNS unavailable", callback)
-		return
-	end
-
-	local okResolve, ip, hostentOrErr = pcall(function()
-		return self.dns:toip(host)
-	end)
-
-	if okResolve and isIpv4(ip) then
-		self.log:info("StandaloneRadio: native DNS resolved ", host, " to ", ip)
-		callback(ip, "native")
-		return
-	end
-
-	local err = okResolve and hostentOrErr or ip
-	self.log:warn("StandaloneRadio: native DNS failed for ", host, ": ", tostring(err))
-	self:_resolveWithNslookup(host, err, callback)
+	self:_resolveWithNslookup(host, "nslookup", callback)
 end

@@ -3,6 +3,7 @@ local ipairs, pcall, setmetatable, tonumber, tostring, type = ipairs, pcall, set
 local string = require("string")
 
 local RequestHttp = require("jive.net.RequestHttp")
+local Resolver = require("applets.StandaloneRadio.Resolver")
 local SocketHttp = require("jive.net.SocketHttp")
 local Stations = require("applets.StandaloneRadio.Stations")
 
@@ -80,19 +81,38 @@ local function toStation(apiStation)
 end
 
 
-function new(options)
-	local http = SocketHttp(jnt, API_HOST, API_PORT, "StandaloneRadioRadioBrowser")
+local function newSocket(ip)
+	local http = SocketHttp(jnt, ip, API_PORT, "StandaloneRadioRadioBrowser")
 	http.t_getSendHeaders = function()
 		return {
 			["User-Agent"] = USER_AGENT,
 		}
 	end
+	return http
+end
 
+
+function new(options)
 	return setmetatable({
 		log = options.log,
 		cache = nil,
-		http = http,
+		resolver = Resolver.new({
+			log = options.log,
+		}),
 	}, RadioBrowser)
+end
+
+
+function RadioBrowser:_fetchWithIp(ip, path, sink, headers, slot)
+	local reqHeaders = headers or {}
+	reqHeaders["Host"] = API_HOST
+
+	local req = RequestHttp(sink, "GET", path, {
+		headers = reqHeaders,
+	})
+
+	self[slot or "http"] = newSocket(ip)
+	self[slot or "http"]:fetch(req)
 end
 
 
@@ -105,55 +125,59 @@ function RadioBrowser:fetch(callback)
 
 	self.log:info("StandaloneRadio: Radio Browser request started")
 
-	local req = RequestHttp(function(body, err)
-		if err then
-			self.log:warn("StandaloneRadio: Radio Browser request failed: ", tostring(err))
-			callback(nil, err)
-			return
-		end
-		if not body then
+	self.resolver:resolve(API_HOST, function(ip)
+		if not ip then
+			self.log:warn("StandaloneRadio: Radio Browser DNS failed")
+			callback(nil, "DNS failed")
 			return
 		end
 
-		local ok, decoded = pcall(function()
-			return json.decode(body)
-		end)
-		if not ok or type(decoded) ~= "table" then
-			self.log:warn("StandaloneRadio: Radio Browser invalid JSON")
-			callback(nil, "invalid JSON")
-			return
-		end
+		self:_fetchWithIp(ip, SEARCH_PATH, function(body, err)
+			if err then
+				self.log:warn("StandaloneRadio: Radio Browser request failed: ", tostring(err))
+				callback(nil, err)
+				return
+			end
+			if not body then
+				return
+			end
 
-		local stations = {}
-		local returned = 0
-		for _, apiStation in ipairs(decoded) do
-			returned = returned + 1
-			if compatible(apiStation) then
-				local station = toStation(apiStation)
-				if station then
-					stations[#stations + 1] = station
+			local ok, decoded = pcall(function()
+				return json.decode(body)
+			end)
+			if not ok or type(decoded) ~= "table" then
+				self.log:warn("StandaloneRadio: Radio Browser invalid JSON")
+				callback(nil, "invalid JSON")
+				return
+			end
+
+			local stations = {}
+			local returned = 0
+			for _, apiStation in ipairs(decoded) do
+				returned = returned + 1
+				if compatible(apiStation) then
+					local station = toStation(apiStation)
+					if station then
+						stations[#stations + 1] = station
+					end
 				end
 			end
-		end
 
-		self.log:info("StandaloneRadio: Radio Browser returned ", tostring(returned), " stations")
-		self.log:info("StandaloneRadio: Radio Browser filtered to ", tostring(#stations), " compatible stations")
-		if #stations > 0 then
-			self.cache = stations
-			callback(stations)
-		elseif self.cache then
-			callback(self.cache)
-		else
-			callback(nil, "empty station list")
-		end
-	end, "GET", "http://" .. API_HOST .. SEARCH_PATH, {
-		headers = {
+			self.log:info("StandaloneRadio: Radio Browser returned ", tostring(returned), " stations")
+			self.log:info("StandaloneRadio: Radio Browser filtered to ", tostring(#stations), " compatible stations")
+			if #stations > 0 then
+				self.cache = stations
+				callback(stations)
+			elseif self.cache then
+				callback(self.cache)
+			else
+				callback(nil, "empty station list")
+			end
+		end, {
 			["Accept"] = "application/json",
 			["Content-Type"] = "application/json; charset=utf-8",
-		},
-	})
-
-	self.http:fetch(req)
+		}, "http")
+	end)
 end
 
 
@@ -163,15 +187,18 @@ function RadioBrowser:recordClick(station)
 	end
 
 	local path = "/json/url/" .. station.stationuuid
-	local req = RequestHttp(function(_, err)
-		if err then
-			self.log:warn("StandaloneRadio: Radio Browser click failed: ", tostring(err))
+	self.resolver:resolve(API_HOST, function(ip)
+		if not ip then
+			self.log:warn("StandaloneRadio: Radio Browser click DNS failed")
+			return
 		end
-	end, "GET", "http://" .. API_HOST .. path, {
-		headers = {
-			["Accept"] = "application/json",
-		},
-	})
 
-	self.http:fetch(req)
+		self:_fetchWithIp(ip, path, function(_, err)
+			if err then
+				self.log:warn("StandaloneRadio: Radio Browser click failed: ", tostring(err))
+			end
+		end, {
+			["Accept"] = "application/json",
+		}, "clickHttp")
+	end)
 end
