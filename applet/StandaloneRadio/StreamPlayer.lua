@@ -371,6 +371,11 @@ function StreamPlayer:getLastStation()
 end
 
 
+function StreamPlayer:getCurrentStation()
+	return self.desiredStation or self.lastStation
+end
+
+
 function StreamPlayer:getState()
 	return self.state
 end
