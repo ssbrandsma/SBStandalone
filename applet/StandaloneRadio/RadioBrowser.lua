@@ -23,7 +23,7 @@ RadioBrowser.__index = RadioBrowser
 local API_HOST = "all.api.radio-browser.info"
 local API_PORT = 80
 local USER_AGENT = "StandaloneRadio/0.2"
-local SEARCH_PATH = "/json/stations/search?countrycode=NL&codec=MP3&is_https=false&hidebroken=true&order=clickcount&reverse=true&limit=75"
+local SEARCH_PATH = "/json/stations/search?countrycode=NL&codec=MP3&is_https=false&hidebroken=true&order=clickcount&reverse=true&limit=175"
 
 
 local function trim(value)
@@ -66,6 +66,7 @@ local function toStation(apiStation)
 		stationuuid = trim(apiStation.stationuuid),
 		name = trim(apiStation.name),
 		url = url,
+		favicon = trim(apiStation.favicon),
 		remoteLogo = trim(apiStation.favicon),
 		source = "radiobrowser",
 		codec = trim(apiStation.codec),

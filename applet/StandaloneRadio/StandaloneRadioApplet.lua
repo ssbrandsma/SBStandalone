@@ -11,6 +11,7 @@ local SimpleMenu = require("jive.ui.SimpleMenu")
 local Timer = require("jive.ui.Timer")
 local Window = require("jive.ui.Window")
 
+local LogoCache = require("applets.StandaloneRadio.LogoCache")
 local NowPlaying = require("applets.StandaloneRadio.NowPlaying")
 local PresetStore = require("applets.StandaloneRadio.PresetStore")
 local RadioBrowser = require("applets.StandaloneRadio.RadioBrowser")
@@ -51,6 +52,10 @@ function _ensureComponents(self)
 		settings = settings,
 	})
 	self.radioBrowser = RadioBrowser.new({
+		log = log,
+	})
+	self.logoCache = LogoCache.new({
+		applet = self,
 		log = log,
 	})
 	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1) or Stations.getById(settings.lastStationId)
@@ -133,6 +138,14 @@ function _playStation(self, station)
 	end
 
 	self.streamPlayer:start(station)
+	if self.logoCache then
+		self.logoCache:ensure(station, function(path)
+			if path then
+				self.presetStore:updateLogo(station)
+				self.nowPlaying:updateLogo(station)
+			end
+		end)
+	end
 	if station.source == "radiobrowser" then
 		self.radioBrowser:recordClick(station)
 	end

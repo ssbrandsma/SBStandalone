@@ -56,7 +56,7 @@ Device firmware: Logitech Squeezebox Radio `baby`, 7.7.3 r16676
 ## Forum feedback DNS follow-up
 
 - Michael Herger pointed out on the Lyrion forum thread that launching `nslookup` instead of using non-blocking DNS was a proof-of-concept shortcut rather than idiomatic SqueezePlay code.
-- The resolver is now isolated in `Resolver.lua`. It tries `jive.net.DNS(jnt):toip(host)` first from the existing playback `Task`, logs native success or failure, validates hostnames before any shell fallback, and uses BusyBox `nslookup` only when native DNS fails or is unavailable.
+- The resolver is isolated in `Resolver.lua`. Live v0.2 testing showed `jive.net.DNS` could fail or raise coroutine boundary warnings from this applet context, while BusyBox `nslookup` resolved reliably. The current resolver validates hostnames and uses asynchronous BusyBox `nslookup` directly.
 - The `nslookup` fallback keeps the previous answer-section parsing rule: parse IPv4 addresses only after `Name:` so the configured DNS server address is not mistaken for the station endpoint.
 
 ## Long-running stream stability follow-up
@@ -67,12 +67,21 @@ Device firmware: Logitech Squeezebox Radio `baby`, 7.7.3 r16676
 
 ## v0.2 Radio Browser and preset findings
 
-- Radio Browser's documented advanced search endpoint supports the v0.2 filter shape: `/json/stations/search?countrycode=NL&codec=MP3&is_https=false&hidebroken=true&order=clickcount&reverse=true&limit=75`.
+- Radio Browser's documented advanced search endpoint supports the v0.2 filter shape: `/json/stations/search?countrycode=NL&codec=MP3&is_https=false&hidebroken=true&order=clickcount&reverse=true&limit=175`.
 - The Radio Browser station model includes `url_resolved`, `codec`, `lastcheckok`, `hls`, `favicon`, `bitrate`, `countrycode`, and `stationuuid`. The applet retains only the fields needed for playback and future preset refresh.
 - On-device `wget` confirmed that `http://all.api.radio-browser.info/json/stations/search?...limit=5` returns Dutch MP3 station JSON over plain HTTP. One direct mirror request timed out mid-transfer during testing, so v0.2 uses `all.api.radio-browser.info`, a small limit, and graceful failure handling.
 - Stock SqueezePlay firmware provides `jive.net.SocketHttp` and `jive.net.RequestHttp` for asynchronous HTTP requests, and a `json` module used by `jive.utils.jsonfilters`; these are used instead of shelling out for the directory.
 - `/usr/share/jive/jive/InputToActionMap.lua` maps preset key press actions to `play_preset_1` through `play_preset_6` and preset key hold actions to `set_preset_1` through `set_preset_6`. v0.2 uses those native hold actions for assignment.
 - `PresetStore.lua` initializes applet settings with the original six presets if no saved preset table exists, then persists full station objects for user assignments. Saved preset playback does not call Radio Browser.
+
+## v0.2.x dynamic artwork findings
+
+- Runtime-downloaded artwork is cached under `/etc/squeezeplay/userpath/StandaloneRadio/cache/logos`, which maps through the union filesystem to persistent UBIFS storage under `/mnt/storage/etc/squeezeplay/userpath/StandaloneRadio/cache/logos`.
+- The cache key is Radio Browser `stationuuid`, sanitized to alphanumeric and dash characters, with `.png` or `.jpg` chosen from the downloaded file's magic bytes. Station names and preset numbers are not used for cache filenames.
+- Stock firmware has `libpng` and `libjpeg`, and stock ImageViewer loads absolute local image paths with `Surface:loadImage(file)`. StandaloneRadio therefore supports cached PNG/JPEG files and relies on the skin to scale them in the existing `Icon` widget.
+- BusyBox `wget` on firmware 7.7.3 supports HTTP and FTP only; it rejects HTTPS URLs with `not an http or ftp url`. HTTPS, SVG, ICO, empty, oversized, and corrupt favicons fall back to the packaged `images/radio.png` generic logo.
+- `LogoCache.lua` downloads favicons asynchronously through `jive.net.Process` after playback has started. Downloads are capped at roughly 512 KB and the cache is pruned to the newest 100 logo files with a simple oldest-file removal strategy.
+- `NowPlaying.lua` now selects artwork from the station object in this order: cached `logoPath`, packaged built-in `logo`, then generic fallback. This removes any conceptual link between preset number and artwork.
 
 ## Decision for milestone 2/3
 

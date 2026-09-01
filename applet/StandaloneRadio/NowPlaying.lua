@@ -1,4 +1,4 @@
-local pcall, setmetatable, tostring = pcall, setmetatable, tostring
+local os, pcall, setmetatable, tostring = os, pcall, setmetatable, tostring
 
 local Framework = require("jive.ui.Framework")
 local Group = require("jive.ui.Group")
@@ -16,6 +16,7 @@ module(...)
 
 local NowPlaying = {}
 NowPlaying.__index = NowPlaying
+local GENERIC_LOGO = "images/radio.png"
 
 
 function new(applet, log, callbacks)
@@ -70,44 +71,79 @@ function NowPlaying:_setLabel(label, field, value)
 end
 
 
+local function logoSource(station)
+	if station.logoPath then
+		return station.logoPath, station.logoPath
+	end
+	if station.logo then
+		return "applets/StandaloneRadio/" .. station.logo, station.logo
+	end
+	return "applets/StandaloneRadio/" .. GENERIC_LOGO, GENERIC_LOGO
+end
+
+
 function NowPlaying:_setLogo(station)
-	if self.logoId == station.id then
+	local imagePath, cacheKey = logoSource(station)
+	local logoId = tostring(station.id) .. ":" .. tostring(cacheKey)
+	if self.logoId == logoId then
 		return
 	end
 
-	self.logoId = station.id
-	if not station.logo then
-		self.log:info("StandaloneRadio: no local logo for ", station.id)
-		return
-	end
-
-	local surface = self.logoCache[station.logo]
+	self.logoId = logoId
+	local surface = self.logoCache[cacheKey]
 	if surface == false then
+		if cacheKey ~= GENERIC_LOGO then
+			self:_setFallbackLogo(station)
+		end
 		return
 	end
 
 	if not surface then
-		local imagePath = "applets/StandaloneRadio/" .. station.logo
 		local ok, loaded = pcall(function()
 			return Surface:loadImage(imagePath)
 		end)
 		if not ok or not loaded then
-			self.logoCache[station.logo] = false
+			self.logoCache[cacheKey] = false
 			self.log:warn("StandaloneRadio: unable to load logo ", imagePath)
+			if station.logoPath and cacheKey == station.logoPath then
+				os.remove(imagePath)
+				station.logoPath = nil
+			end
+			if cacheKey ~= GENERIC_LOGO then
+				self:_setFallbackLogo(station)
+			end
 			return
 		end
 		surface = loaded
-		self.logoCache[station.logo] = surface
+		self.logoCache[cacheKey] = surface
 	end
 
 	self.artwork:setValue(surface)
-	self.log:info("StandaloneRadio: logo=", station.logo)
+	self.log:info("StandaloneRadio: logo=", imagePath)
+end
+
+
+function NowPlaying:_setFallbackLogo(station)
+	local fallback = {
+		id = station.id,
+		logo = GENERIC_LOGO,
+	}
+	self:_setLogo(fallback)
+end
+
+
+function NowPlaying:updateLogo(station)
+	if station and self.currentStationId == station.id then
+		self:_setLogo(station)
+		self.log:info("StandaloneRadio: Now Playing logo updated for ", Stations.displayName(station, self.applet))
+	end
 end
 
 
 function NowPlaying:update(station, state, show)
 	self:_ensureWindow()
 	if station then
+		self.currentStationId = station.id
 		self:_setLabel(self.stationLabel, "stationText", Stations.displayName(station, self.applet))
 		self:_setLogo(station)
 	end
