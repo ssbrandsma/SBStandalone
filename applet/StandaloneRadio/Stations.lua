@@ -1,4 +1,4 @@
-local ipairs, tonumber, type = ipairs, tonumber, type
+local ipairs, tonumber, tostring, type = ipairs, tonumber, tostring, type
 
 local string = require("string")
 
@@ -31,6 +31,37 @@ local function parseUrl(station)
 end
 
 
+local function stationName(station)
+	if not station then
+		return ""
+	end
+	return station.name or station.id or station.nameToken or ""
+end
+
+
+function normalize(station)
+	if not station then
+		return nil, "station required"
+	end
+
+	local parsed, err = parseUrl(station)
+	if not parsed then
+		return nil, err
+	end
+
+	if not station.id or station.id == "" then
+		station.id = station.stationuuid or stationName(station)
+	end
+	if station.id then
+		station.id = tostring(station.id)
+	end
+	if station.name then
+		station.name = tostring(station.name)
+	end
+	return station
+end
+
+
 function validate(log)
 	byId = {}
 	byPreset = {}
@@ -45,7 +76,7 @@ function validate(log)
 			return false
 		end
 
-		local parsed, err = parseUrl(station)
+		local parsed, err = normalize(station)
 		if not parsed then
 			log:error("StandaloneRadio: invalid station URL for ", station.id, ": ", err)
 			return false
@@ -71,4 +102,15 @@ end
 
 function getByPreset(preset)
 	return byPreset[preset]
+end
+
+
+function displayName(station, applet)
+	if station.name then
+		return station.name
+	end
+	if station.nameToken and applet then
+		return tostring(applet:string(station.nameToken))
+	end
+	return stationName(station)
 end

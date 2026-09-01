@@ -67,6 +67,24 @@ The password is provided only to the temporary SSH askpass helper through the pr
 
 Preset and transport handling is enabled when SqueezePlay starts, so the six station buttons work without first opening the applet menu. Volume remains the normal stock volume control.
 
+## Radio Browser
+
+The `Radio Browser` menu opens a dynamic station directory using the public Radio Browser API. Version 0.2 deliberately shows a conservative list of popular Dutch stations: HTTP streams, MP3 codec, reported working, and limited to a small result set so the Radio is not asked to hold a large database in memory.
+
+Browsing Radio Browser requires internet access at the time you open that menu. Saved presets do not: once a station is assigned to a preset, the station name and stream URL are stored locally and can be played without contacting Radio Browser again.
+
+## Assigning Presets
+
+To replace a preset:
+
+1. Open `Standalone Radio`.
+2. Open `Radio Browser`.
+3. Select and play a station.
+4. Press and hold preset button `1`-`6`.
+5. Short-press that preset later to play the saved station.
+
+Preset assignments survive reboot. Existing installations are migrated to the original six defaults until you replace them: NPO Radio 1, NPO Radio 2, Radio 538, Radio 10, Radio Veronica, and BNR Nieuwsradio.
+
 ## Now Playing And Metadata
 
 Selecting a station opens Now Playing immediately. It keeps the station logo and name visible and displays one of these statuses: `Resolving...`, `Connecting...`, `Playing`, `Stopped`, or `Connection failed`.

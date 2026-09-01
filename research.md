@@ -65,6 +65,15 @@ Device firmware: Logitech Squeezebox Radio `baby`, 7.7.3 r16676
 - Live log inspection was not possible from the development PC at the time because SSH authentication was unavailable in the shell, but the code had two plausible weak spots: the HTTP request explicitly sent `Connection: close`, and automatic recovery depended on `_streamDisconnect()` receiving a useful disconnect callback.
 - The stream request no longer asks the server to close the connection. A retained repeating watchdog now checks the active playback stream every 30 seconds and schedules the existing reconnect path if the stream disappears or byte progress stalls for two consecutive checks.
 
+## v0.2 Radio Browser and preset findings
+
+- Radio Browser's documented advanced search endpoint supports the v0.2 filter shape: `/json/stations/search?countrycode=NL&codec=MP3&is_https=false&hidebroken=true&order=clickcount&reverse=true&limit=75`.
+- The Radio Browser station model includes `url_resolved`, `codec`, `lastcheckok`, `hls`, `favicon`, `bitrate`, `countrycode`, and `stationuuid`. The applet retains only the fields needed for playback and future preset refresh.
+- On-device `wget` confirmed that `http://all.api.radio-browser.info/json/stations/search?...limit=5` returns Dutch MP3 station JSON over plain HTTP. One direct mirror request timed out mid-transfer during testing, so v0.2 uses `all.api.radio-browser.info`, a small limit, and graceful failure handling.
+- Stock SqueezePlay firmware provides `jive.net.SocketHttp` and `jive.net.RequestHttp` for asynchronous HTTP requests, and a `json` module used by `jive.utils.jsonfilters`; these are used instead of shelling out for the directory.
+- `/usr/share/jive/jive/InputToActionMap.lua` maps preset key press actions to `play_preset_1` through `play_preset_6` and preset key hold actions to `set_preset_1` through `set_preset_6`. v0.2 uses those native hold actions for assignment.
+- `PresetStore.lua` initializes applet settings with the original six presets if no saved preset table exists, then persists full station objects for user assignments. Saved preset playback does not call Radio Browser.
+
 ## Decision for milestone 2/3
 
 Proceed with a new standalone applet under `/usr/share/jive/applets/StandaloneRadio/` that:

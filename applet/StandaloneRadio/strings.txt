@@ -30,6 +30,26 @@ STANDALONE_RADIO_STOP
 	EN	Stop
 	NL	Stop
 
+STANDALONE_RADIO_BROWSER
+	EN	Radio Browser
+	NL	Radio Browser
+
+STANDALONE_RADIO_LOADING
+	EN	Loading...
+	NL	Laden...
+
+STANDALONE_RADIO_BROWSER_FAILED
+	EN	Unable to load station list
+	NL	Kan zenderlijst niet laden
+
+STANDALONE_RADIO_PRESET_SAVED
+	EN	Saved to preset %d
+	NL	Opgeslagen onder voorkeuze %d
+
+STANDALONE_RADIO_NO_STATION_SELECTED
+	EN	No station selected
+	NL	Geen zender geselecteerd
+
 STANDALONE_RADIO_CONNECTING
 	EN	Connecting...
 	NL	Verbinden...

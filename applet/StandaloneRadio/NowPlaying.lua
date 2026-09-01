@@ -7,6 +7,8 @@ local Label = require("jive.ui.Label")
 local Surface = require("jive.ui.Surface")
 local Window = require("jive.ui.Window")
 
+local Stations = require("applets.StandaloneRadio.Stations")
+
 local EVENT_WINDOW_POP = jive.ui.EVENT_WINDOW_POP
 
 module(...)
@@ -97,7 +99,7 @@ end
 function NowPlaying:update(station, state, show)
 	self:_ensureWindow()
 	if station then
-		self:_setLabel(self.stationLabel, "stationText", tostring(self.applet:string(station.nameToken)))
+		self:_setLabel(self.stationLabel, "stationText", Stations.displayName(station, self.applet))
 		self:_setLogo(station)
 	end
 

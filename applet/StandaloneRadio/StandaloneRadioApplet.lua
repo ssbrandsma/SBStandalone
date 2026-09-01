@@ -5,11 +5,15 @@ local table = require("table")
 
 local Applet = require("jive.Applet")
 local Framework = require("jive.ui.Framework")
+local Label = require("jive.ui.Label")
+local Popup = require("jive.ui.Popup")
 local SimpleMenu = require("jive.ui.SimpleMenu")
 local Timer = require("jive.ui.Timer")
 local Window = require("jive.ui.Window")
 
 local NowPlaying = require("applets.StandaloneRadio.NowPlaying")
+local PresetStore = require("applets.StandaloneRadio.PresetStore")
+local RadioBrowser = require("applets.StandaloneRadio.RadioBrowser")
 local Stations = require("applets.StandaloneRadio.Stations")
 local StreamPlayer = require("applets.StandaloneRadio.StreamPlayer")
 
@@ -38,7 +42,15 @@ function _ensureComponents(self)
 
 	local settings = self:getSettings() or {}
 	self:setSettings(settings)
-	self.lastStation = Stations.getById(settings.lastStationId)
+	self.presetStore = PresetStore.new({
+		applet = self,
+		log = log,
+		settings = settings,
+	})
+	self.radioBrowser = RadioBrowser.new({
+		log = log,
+	})
+	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1) or Stations.getById(settings.lastStationId)
 	self.nowPlaying = NowPlaying.new(self, log)
 	self.streamPlayer = StreamPlayer.new({
 		log = log,
@@ -54,6 +66,9 @@ function _ensureComponents(self)
 			onSelected = function(station)
 				self.lastStation = station
 				settings.lastStationId = station.id
+				if station.preset then
+					settings.lastPreset = station.preset
+				end
 				self:storeSettings()
 				self:_refreshMenu()
 			end,
@@ -87,7 +102,52 @@ function _statusText(self)
 	local prefix = self.streamPlayer and self.streamPlayer:isPlaying()
 		and self:string("STANDALONE_RADIO_STATUS_PLAYING")
 		or self:string("STANDALONE_RADIO_STATUS_STOPPED")
-	return tostring(prefix):gsub("%%s", tostring(self:string(self.lastStation.nameToken)))
+	return tostring(prefix):gsub("%%s", Stations.displayName(self.lastStation, self))
+end
+
+
+function _showPopup(self, text)
+	local popup = Popup("popup", text)
+	popup:addWidget(Label("text", text))
+	popup:show()
+
+	local timer = Timer(1800, function()
+		popup:hide()
+	end, true)
+	timer:start()
+end
+
+
+function _playStation(self, station)
+	if not station then
+		return
+	end
+
+	self.streamPlayer:start(station)
+	if station.source == "radiobrowser" then
+		self.radioBrowser:recordClick(station)
+	end
+end
+
+
+function _assignPreset(self, number)
+	if not self:_ensureComponents() then
+		return
+	end
+
+	local station = self.streamPlayer:getCurrentStation()
+	if not station then
+		_logInfo("no station selected for preset ", tostring(number))
+		self:_showPopup(self:string("STANDALONE_RADIO_NO_STATION_SELECTED"))
+		return
+	end
+
+	_logInfo("assigning ", Stations.displayName(station, self), " to preset ", tostring(number))
+	local saved = self.presetStore:assign(number, station)
+	if saved then
+		self:_showPopup(tostring(self:string("STANDALONE_RADIO_PRESET_SAVED")):gsub("%%d", tostring(number)))
+		self:_refreshMenu()
+	end
 end
 
 
@@ -100,13 +160,23 @@ function _refreshMenu(self)
 		{ text = self:_statusText(), style = "item", weight = 0 },
 	}
 
-	for _, station in ipairs(Stations.all()) do
+	items[#items + 1] = {
+		text = self:string("STANDALONE_RADIO_BROWSER"),
+		sound = "SELECT",
+		weight = 1,
+		callback = function()
+			self:radioBrowserMenu()
+		end,
+	}
+
+	for preset, station in ipairs(self.presetStore:all()) do
 		items[#items + 1] = {
-			text = tostring(station.preset) .. ". " .. tostring(self:string(station.nameToken)),
+			text = tostring(preset) .. ". " .. Stations.displayName(station, self),
 			sound = "SELECT",
-			weight = station.preset,
+			weight = preset + 10,
 			callback = function()
-				self.streamPlayer:start(station)
+				_logInfo("playing saved preset ", tostring(preset), " ", Stations.displayName(station, self))
+				self:_playStation(station)
 			end,
 		}
 	end
@@ -122,6 +192,51 @@ function _refreshMenu(self)
 
 	self.menuWidget:setItems(items)
 	self.menuWidget:reLayout()
+end
+
+
+function radioBrowserMenu(self)
+	if not self:_ensureComponents() then
+		return
+	end
+
+	local window = Window("text_list", self:string("STANDALONE_RADIO_BROWSER"))
+	local menu = SimpleMenu("menu")
+	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
+	window:addWidget(menu)
+	menu:setItems({
+		{ text = self:string("STANDALONE_RADIO_LOADING"), style = "item", weight = 0 },
+	})
+	self:tieAndShowWindow(window)
+
+	self.radioBrowser:fetch(function(stations, err)
+		local items = {}
+		if not stations then
+			items[#items + 1] = {
+				text = self:string("STANDALONE_RADIO_BROWSER_FAILED"),
+				style = "item",
+				weight = 0,
+			}
+			if err then
+				_logInfo("Radio Browser menu failed: ", tostring(err))
+			end
+		else
+			for index, station in ipairs(stations) do
+				items[#items + 1] = {
+					text = Stations.displayName(station, self),
+					sound = "SELECT",
+					weight = index,
+					callback = function()
+						_logInfo("selected Radio Browser station ", Stations.displayName(station, self))
+						self:_playStation(station)
+					end,
+				}
+			end
+		end
+
+		menu:setItems(items)
+		menu:reLayout()
+	end)
 end
 
 
@@ -154,7 +269,7 @@ function scheduleStartupTest(self)
 	os.remove(AUTOTEST_MARKER)
 	self._startupTimer = Timer(5000, function()
 		_logInfo("startup self-test starting preset 1")
-		self.streamPlayer:start(Stations.getByPreset(1))
+		self:_playStation(self.presetStore:getPreset(1))
 	end, true)
 	self._startupTimer:start()
 end
@@ -169,15 +284,26 @@ function enableStandaloneMode(self)
 	self.listenerHandles = {}
 
 	local function playPreset(_, event, station)
-		_logInfo("preset action ", station.id)
-		self.streamPlayer:start(station)
+		if station then
+			_logInfo("preset action ", station.id)
+			self:_playStation(station)
+		else
+			_logInfo("preset action ignored; no station assigned")
+			self:_showPopup(self:string("STANDALONE_RADIO_NO_STATION_SELECTED"))
+		end
 		return EVENT_CONSUME
 	end
 
-	for _, station in ipairs(Stations.all()) do
-		table.insert(self.listenerHandles, Framework:addActionListener("play_preset_" .. station.preset, self,
+	for i = 1, 6 do
+		table.insert(self.listenerHandles, Framework:addActionListener("play_preset_" .. i, self,
 			function(_, event)
+				local station = self.presetStore:getPreset(i)
 				return playPreset(self, event, station)
+			end, -100))
+		table.insert(self.listenerHandles, Framework:addActionListener("set_preset_" .. i, self,
+			function()
+				self:_assignPreset(i)
+				return EVENT_CONSUME
 			end, -100))
 	end
 
