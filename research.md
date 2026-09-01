@@ -40,7 +40,7 @@ Device firmware: Logitech Squeezebox Radio `baby`, 7.7.3 r16676
 - SqueezePlay applet `strings.txt` files are token blocks with language rows, not colon-delimited key/value pairs.
 - The locale API accepts only primitive formatting arguments. Status text must stringify nested localized station names before formatting; otherwise it raises a task error before `_streamConnect` executes.
 - Localized values are locale objects. Convert them with `tostring` before concatenating menu labels with ordinary Lua strings.
-- The firmware's `jive.net.DNS` resolver returned `Try again` from an applet, but `/usr/bin/nslookup` (BusyBox 1.18.2) correctly resolved `icecast.omroep.nl` using the DHCP-provided resolver in `/etc/resolv.conf`. The applet therefore uses `jive.net.Process` to run `nslookup` asynchronously and parses its first IPv4 result, avoiding hardcoded IP addresses.
+- The firmware's `jive.net.DNS` resolver returned `Try again` from an applet, but `/usr/bin/nslookup` (BusyBox 1.18.2) correctly resolved `icecast.omroep.nl` using the DHCP-provided resolver in `/etc/resolv.conf`. The first working proof of concept therefore used `jive.net.Process` to run `nslookup` asynchronously and parsed its first IPv4 result, avoiding hardcoded IP addresses.
 - On-device two-second `wget` reads confirmed that the configured HTTP MP3 endpoints for NPO Radio 1, Radio 538, Radio 10, Radio Veronica, and BNR all returned audio data on 2026-08-31.
 
 ## Milestone 5 Now Playing and metadata findings
@@ -53,12 +53,24 @@ Device firmware: Logitech Squeezebox Radio `baby`, 7.7.3 r16676
 - The Now Playing UI follows the stock Line-In layout: `Window("linein")`, `Group("title")`, `Group("npartwork")`, `Group("nptitle")`, `Icon`, and mutable `Label` widgets. Back uses the stock default left button, so it returns normally without stopping audio or disabling display power management.
 - Six local PNG logos are stored in `applet/StandaloneRadio/images/`, constrained to a maximum of 180 by 110 pixels. They are loaded with `Surface:loadImage()` and cached per station; the radio never downloads artwork at runtime.
 
+## Forum feedback DNS follow-up
+
+- Michael Herger pointed out on the Lyrion forum thread that launching `nslookup` instead of using non-blocking DNS was a proof-of-concept shortcut rather than idiomatic SqueezePlay code.
+- The resolver is now isolated in `Resolver.lua`. It tries `jive.net.DNS(jnt):toip(host)` first from the existing playback `Task`, logs native success or failure, validates hostnames before any shell fallback, and uses BusyBox `nslookup` only when native DNS fails or is unavailable.
+- The `nslookup` fallback keeps the previous answer-section parsing rule: parse IPv4 addresses only after `Name:` so the configured DNS server address is not mistaken for the station endpoint.
+
+## Long-running stream stability follow-up
+
+- Reports after longer playback showed internet radio sometimes stops after roughly 20 to 60 minutes and resumes when a preset is pressed again.
+- Live log inspection was not possible from the development PC at the time because SSH authentication was unavailable in the shell, but the code had two plausible weak spots: the HTTP request explicitly sent `Connection: close`, and automatic recovery depended on `_streamDisconnect()` receiving a useful disconnect callback.
+- The stream request no longer asks the server to close the connection. A retained repeating watchdog now checks the active playback stream every 30 seconds and schedules the existing reconnect path if the stream disappears or byte progress stalls for two consecutive checks.
+
 ## Decision for milestone 2/3
 
 Proceed with a new standalone applet under `/usr/share/jive/applets/StandaloneRadio/` that:
 
 - adds a `Standalone Radio` menu entry
-- resolves hostnames with BusyBox `nslookup` through `jive.net.Process`
+- resolves hostnames with SqueezePlay's non-blocking `jive.net.DNS` resolver, falling back to BusyBox `nslookup` through `jive.net.Process`
 - uses the existing local player's `playback` instance
 - starts MP3 decode with the stock decoder signature
 - calls `_streamConnect()` with a plain HTTP/1.0 request in `self.header`

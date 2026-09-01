@@ -8,9 +8,10 @@ param(
 $sshArgs = @(
 	"-o", "HostKeyAlgorithms=+ssh-rsa,ssh-dss",
 	"-o", "KexAlgorithms=+diffie-hellman-group1-sha1",
-	"-o", "MACs=hmac-sha1,hmac-sha1-96,hmac-md5",
+	"-o", "MACs=hmac-sha2-256,hmac-sha1,hmac-sha1-96,hmac-md5",
 	"-o", "StrictHostKeyChecking=no",
-	"-c", "aes128-cbc"
+	"-o", "PubkeyAuthentication=no",
+	"-c", "aes256-ctr,aes128-cbc"
 )
 
 $localApplet = Join-Path $PSScriptRoot "..\applet\StandaloneRadio"

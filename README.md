@@ -95,7 +95,7 @@ If deployment cannot connect, first confirm the radio's current DHCP address, Wi
 
 ## How It Works
 
-The applet obtains the existing local player through `Player:getLocalPlayer().playback`, resolves station hosts asynchronously with BusyBox `nslookup`, and starts the stock MP3 stream/decode path with `playback:_streamConnect()`. Stop and station switches use `playback:stopInternal()`.
+The applet obtains the existing local player through `Player:getLocalPlayer().playback`, resolves station hosts with SqueezePlay's non-blocking `jive.net.DNS` resolver, falls back to BusyBox `nslookup` if native DNS fails, and starts the stock MP3 stream/decode path with `playback:_streamConnect()`. Stop and station switches use `playback:stopInternal()`.
 
 For ICY-capable streams, it asks for metadata, reads the server's `icy-metaint` response through the playback instance, and enables SqueezePlay's built-in native metadata filter. That filter keeps metadata bytes out of the MP3 decoder. The applet observes the resulting native `META` notifications to update the on-screen label. It does not implement its own socket reader or modify stock playback code.
 
