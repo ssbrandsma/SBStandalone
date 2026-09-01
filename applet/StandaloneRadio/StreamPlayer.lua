@@ -3,13 +3,11 @@ local pcall, setmetatable, tonumber, tostring, type = pcall, setmetatable, tonum
 local string = require("string")
 
 local Player = require("jive.slim.Player")
-local Process = require("jive.net.Process")
+local Resolver = require("applets.StandaloneRadio.Resolver")
 local Stream = require("squeezeplay.stream")
 local Task = require("jive.ui.Task")
 local Timer = require("jive.ui.Timer")
 local decode = require("squeezeplay.decode")
-
-local jnt = jnt
 
 module(...)
 
@@ -17,6 +15,8 @@ module(...)
 local StreamPlayer = {}
 StreamPlayer.__index = StreamPlayer
 local reconnectDelays = { 2000, 5000, 10000, 30000 }
+local WATCHDOG_INTERVAL = 30000
+local WATCHDOG_STALL_POLLS = 2
 
 
 local function localPlayback()
@@ -32,14 +32,20 @@ end
 
 
 function new(options)
-	return setmetatable({
+	local player = setmetatable({
 		log = options.log,
 		callbacks = options.callbacks,
 		lastStation = options.lastStation,
 		retryIndex = 1,
 		generation = 0,
 		state = "STOPPED",
+		watchdogStalls = 0,
 	}, StreamPlayer)
+	player.resolver = Resolver.new({
+		log = options.log,
+	})
+	player:_startWatchdog()
+	return player
 end
 
 
@@ -51,6 +57,73 @@ end
 function StreamPlayer:_notifyState(station, state, show)
 	self.state = state
 	self.callbacks.onState(station, state, show)
+end
+
+
+function StreamPlayer:_resetWatchdog()
+	self.watchdogBytes = nil
+	self.watchdogStalls = 0
+end
+
+
+function StreamPlayer:_startWatchdog()
+	if self.watchdogTimer then
+		return
+	end
+
+	self.watchdogTimer = Timer(WATCHDOG_INTERVAL, function()
+		self:_watchdogTick()
+	end)
+	self.watchdogTimer:start()
+end
+
+
+function StreamPlayer:_watchdogTick()
+	local station = self.desiredStation
+	if not station or self.intentionalStop or self.pendingStation or self.reconnectTimer then
+		self:_resetWatchdog()
+		return
+	end
+
+	local playback = localPlayback()
+	if not playback then
+		self:_resetWatchdog()
+		return
+	end
+
+	if self.playbackActive and not playback.stream then
+		self.log:warn("StandaloneRadio: watchdog found no active stream; reconnecting ", station.id)
+		self:_resetWatchdog()
+		self:_scheduleReconnect(station, self.generation)
+		return
+	end
+
+	if not self.playbackActive or not playback.stream then
+		self:_resetWatchdog()
+		return
+	end
+
+	local okStatus, status = pcall(function()
+		return decode:status()
+	end)
+	if not okStatus or type(status) ~= "table" then
+		self:_resetWatchdog()
+		return
+	end
+
+	local bytes = tonumber(status.bytesReceivedL) or tonumber(status.bytesReceived) or 0
+	if bytes <= 0 or bytes ~= self.watchdogBytes then
+		self.watchdogBytes = bytes
+		self.watchdogStalls = 0
+		return
+	end
+
+	self.watchdogStalls = self.watchdogStalls + 1
+	if self.watchdogStalls >= WATCHDOG_STALL_POLLS then
+		self.log:warn("StandaloneRadio: watchdog found stalled stream; reconnecting ", station.id)
+		self:_resetWatchdog()
+		self:_scheduleReconnect(station, self.generation)
+	end
 end
 
 
@@ -71,26 +144,6 @@ function StreamPlayer:_stopPlayback()
 	else
 		decode:stop()
 	end
-end
-
-
-function StreamPlayer:_resolveHost(host, callback)
-	local output = ""
-	local process = Process(jnt, "nslookup " .. host .. " 2>&1")
-
-	process:read(function(chunk, err)
-		if chunk then
-			output = output .. chunk
-			return
-		end
-
-		local result = string.match(output, "Name:[%s%S]*")
-		local ip = result and string.match(result, "Address [0-9]+:%s*([0-9]+%.[0-9]+%.[0-9]+%.[0-9]+)")
-		if not ip then
-			self.log:warn("StandaloneRadio: nslookup failed for ", host, ": ", tostring(err or output))
-		end
-		callback(ip)
-	end)
 end
 
 
@@ -154,6 +207,7 @@ function StreamPlayer:_handleDisconnect(reason, flush)
 	local generation = self.generation
 	self.playbackActive = false
 	self.currentMetadata = nil
+	self:_resetWatchdog()
 	self:_notifyState(station, "CONNECTION_LOST", false)
 	self.log:warn("StandaloneRadio: stream disconnected ", tostring(reason))
 	self:_scheduleReconnect(station, generation)
@@ -212,6 +266,7 @@ function StreamPlayer:_begin(station, reconnect)
 	self.pendingStation = station
 	self.currentMetadata = nil
 	self.playbackActive = false
+	self:_resetWatchdog()
 	if not reconnect then
 		self.retryIndex = 1
 		self.lastStation = station
@@ -231,7 +286,7 @@ function StreamPlayer:_begin(station, reconnect)
 	Task("StandaloneRadioPlay", self, function()
 		self.log:info("StandaloneRadio: selected ", station.id)
 		self.log:info("StandaloneRadio: resolving ", station.host)
-		self:_resolveHost(station.host, function(ip)
+		self.resolver:resolve(station.host, function(ip)
 			if not self:_isCurrent(generation, station) then
 				return
 			end
@@ -257,7 +312,7 @@ function StreamPlayer:_begin(station, reconnect)
 				"User-Agent: SqueezePlay StandaloneRadio\n" ..
 				"Icy-MetaData: 1\n" ..
 				"Accept: audio/mpeg,*/*\n" ..
-				"Connection: close\n\n"
+				"Cache-Control: no-cache\n\n"
 			playback.autostart = '1'
 			playback.threshold = 0
 			playback.sentResume = false
@@ -291,6 +346,7 @@ function StreamPlayer:stop()
 	self.pendingStation = nil
 	self.currentMetadata = nil
 	self.playbackActive = false
+	self:_resetWatchdog()
 	self:_stopPlayback()
 	if self.lastStation then
 		self:_notifyState(self.lastStation, "STOPPED", false)
