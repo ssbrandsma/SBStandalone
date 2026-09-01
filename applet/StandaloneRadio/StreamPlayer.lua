@@ -355,6 +355,21 @@ function StreamPlayer:stop()
 end
 
 
+function StreamPlayer:stopConnecting()
+	if self.playbackActive then
+		self.log:info("StandaloneRadio: back ignored; stream is playing")
+		return false
+	end
+	if not self.desiredStation and not self.pendingStation and not self.reconnectTimer then
+		return false
+	end
+
+	self.log:info("StandaloneRadio: back cancels pending connection")
+	self:stop()
+	return true
+end
+
+
 function StreamPlayer:play()
 	if self.desiredStation then
 		return self:start(self.desiredStation)
