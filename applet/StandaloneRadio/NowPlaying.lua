@@ -18,10 +18,11 @@ local NowPlaying = {}
 NowPlaying.__index = NowPlaying
 
 
-function new(applet, log)
+function new(applet, log, callbacks)
 	return setmetatable({
 		applet = applet,
 		log = log,
+		callbacks = callbacks or {},
 		logoCache = {},
 	}, NowPlaying)
 end
@@ -51,6 +52,9 @@ function NowPlaying:_ensureWindow()
 	}))
 	window:addListener(EVENT_WINDOW_POP, function()
 		self.visible = false
+		if self.callbacks.onClose then
+			self.callbacks.onClose()
+		end
 	end)
 
 	self.window = window

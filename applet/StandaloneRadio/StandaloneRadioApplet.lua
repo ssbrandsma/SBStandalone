@@ -54,7 +54,13 @@ function _ensureComponents(self)
 		log = log,
 	})
 	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1) or Stations.getById(settings.lastStationId)
-	self.nowPlaying = NowPlaying.new(self, log)
+	self.nowPlaying = NowPlaying.new(self, log, {
+		onClose = function()
+			if self.streamPlayer then
+				self.streamPlayer:stopConnecting()
+			end
+		end,
+	})
 	self.streamPlayer = StreamPlayer.new({
 		log = log,
 		lastStation = self.lastStation,
