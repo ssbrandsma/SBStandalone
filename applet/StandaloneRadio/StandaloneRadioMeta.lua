@@ -16,6 +16,16 @@ function jiveVersion(self)
 end
 
 
+function defaultSettings(self)
+	return {}
+end
+
+
+function upgradeSettings(self, settings)
+	return settings or {}
+end
+
+
 function registerApplet(meta)
 	jiveMain:addItem(meta:menuItem('standaloneRadio', 'home', "STANDALONE_RADIO", function(applet, ...) applet:menu() end, 45))
 

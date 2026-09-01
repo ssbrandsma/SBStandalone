@@ -72,6 +72,11 @@ function NowPlaying:_setLogo(station)
 	end
 
 	self.logoId = station.id
+	if not station.logo then
+		self.log:info("StandaloneRadio: no local logo for ", station.id)
+		return
+	end
+
 	local surface = self.logoCache[station.logo]
 	if surface == false then
 		return
