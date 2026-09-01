@@ -42,6 +42,9 @@ function _ensureComponents(self)
 
 	local settings = self:getSettings() or {}
 	self:setSettings(settings)
+	if self._entry then
+		self._entry.settings = settings
+	end
 	self.presetStore = PresetStore.new({
 		applet = self,
 		log = log,
