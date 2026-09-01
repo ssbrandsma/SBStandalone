@@ -73,6 +73,12 @@ The `Radio Browser` menu opens a dynamic station directory using the public Radi
 
 Browsing Radio Browser requires internet access at the time you open that menu. Saved presets do not: once a station is assigned to a preset, the station name and stream URL are stored locally and can be played without contacting Radio Browser again.
 
+## Station Artwork
+
+Radio Browser stations may provide artwork through their `favicon` field. StandaloneRadio downloads supported artwork asynchronously after playback has already started, stores it locally on the Radio, and uses the cached artwork later for saved presets.
+
+On stock 7.7.3 firmware, runtime artwork download is intentionally conservative: HTTP PNG and JPEG images are supported, oversized files are rejected, and unsupported or unreachable artwork falls back to the packaged generic radio icon. Many Radio Browser favicons are HTTPS or SVG/ICO, and those may show the fallback because the stock BusyBox `wget` cannot fetch HTTPS.
+
 ## Assigning Presets
 
 To replace a preset:
@@ -90,8 +96,6 @@ Preset assignments survive reboot. Existing installations are migrated to the or
 Selecting a station opens Now Playing immediately. It keeps the station logo and name visible and displays one of these statuses: `Resolving...`, `Connecting...`, `Playing`, `Stopped`, or `Connection failed`.
 
 The applet requests ICY metadata only through the stock stream engine. When a stream provides it, its `StreamTitle` replaces `Playing`; otherwise the screen simply stays on `Playing`. Radio 538, Radio 10, and Radio Veronica advertised ICY metadata when last tested. NPO Radio 1 and NPO Radio 2 may not provide a track title.
-
-All logos are compact local PNG files in [images](applet/StandaloneRadio/images/); the radio never downloads artwork at runtime.
 
 ## Update And Diagnose
 
@@ -113,7 +117,7 @@ If deployment cannot connect, first confirm the radio's current DHCP address, Wi
 
 ## How It Works
 
-The applet obtains the existing local player through `Player:getLocalPlayer().playback`, resolves station hosts with SqueezePlay's non-blocking `jive.net.DNS` resolver, falls back to BusyBox `nslookup` if native DNS fails, and starts the stock MP3 stream/decode path with `playback:_streamConnect()`. Stop and station switches use `playback:stopInternal()`.
+The applet obtains the existing local player through `Player:getLocalPlayer().playback`, resolves station hosts asynchronously through BusyBox `nslookup`, and starts the stock MP3 stream/decode path with `playback:_streamConnect()`. Stop and station switches use `playback:stopInternal()`.
 
 For ICY-capable streams, it asks for metadata, reads the server's `icy-metaint` response through the playback instance, and enables SqueezePlay's built-in native metadata filter. That filter keeps metadata bytes out of the MP3 decoder. The applet observes the resulting native `META` notifications to update the on-screen label. It does not implement its own socket reader or modify stock playback code.
 

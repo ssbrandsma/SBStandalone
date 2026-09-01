@@ -16,7 +16,9 @@ local function clonePreset(station, preset)
 		name = station.name,
 		nameToken = station.nameToken,
 		url = station.url,
+		favicon = station.favicon or station.remoteLogo,
 		logo = station.logo,
+		logoPath = station.logoPath,
 		remoteLogo = station.remoteLogo,
 		source = station.source or "builtin",
 		codec = station.codec,
@@ -92,4 +94,25 @@ function PresetStore:assign(number, station)
 	self.applet:storeSettings()
 	self.log:info("StandaloneRadio: preset ", tostring(number), " saved")
 	return saved
+end
+
+
+function PresetStore:updateLogo(station)
+	if not station or not self.settings.presets then
+		return
+	end
+
+	for i = 1, 6 do
+		local preset = self.settings.presets[i] or self.settings.presets[tostring(i)]
+		if preset and (
+			(station.stationuuid and preset.stationuuid == station.stationuuid)
+			or (station.id and preset.id == station.id)
+		) then
+			preset.favicon = station.favicon or station.remoteLogo or preset.favicon
+			preset.remoteLogo = station.remoteLogo or station.favicon or preset.remoteLogo
+			preset.logoPath = station.logoPath or preset.logoPath
+			self.applet:storeSettings()
+			self.log:info("StandaloneRadio: preset ", tostring(i), " logo updated")
+		end
+	end
 end
