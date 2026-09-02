@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-	[string]$BaseUrl = "http://www.bytestack.nl/sbstandalone",
+	[string]$BaseUrl = "http://<VPS_HOST>/sbstandalone",
 	[string]$OutputDirectory
 )
 
