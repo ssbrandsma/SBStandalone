@@ -6,12 +6,12 @@ module(...)
 
 
 local stations = {
-	{ id = "npo1", nameToken = "STANDALONE_RADIO_NPO1", url = "http://icecast.omroep.nl/radio1-bb-mp3", logo = "images/npo1.png", preset = 1 },
-	{ id = "npo2", nameToken = "STANDALONE_RADIO_NPO2", url = "http://icecast.omroep.nl/radio2-bb-mp3", logo = "images/npo2.png", preset = 2 },
-	{ id = "radio538", nameToken = "STANDALONE_RADIO_538", url = "http://28513.live.streamtheworld.com/RADIO538.mp3", logo = "images/radio538.png", preset = 3 },
-	{ id = "radio10", nameToken = "STANDALONE_RADIO_10", url = "http://25683.live.streamtheworld.com/RADIO10.mp3", logo = "images/radio10.png", preset = 4 },
-	{ id = "veronica", nameToken = "STANDALONE_RADIO_VERONICA", url = "http://27903.live.streamtheworld.com/VERONICA.mp3", logo = "images/veronica.png", preset = 5 },
-	{ id = "bnr", nameToken = "STANDALONE_RADIO_BNR", url = "http://stream.bnr.nl/bnr_mp3_128_20", logo = "images/bnr.png", preset = 6 },
+	{ id = "npo1", nameToken = "STANDALONE_RADIO_NPO1", url = "http://icecast.omroep.nl/radio1-bb-mp3", logo = "images/radio.png", preset = 1 },
+	{ id = "npo2", nameToken = "STANDALONE_RADIO_NPO2", url = "http://icecast.omroep.nl/radio2-bb-mp3", logo = "images/radio.png", preset = 2 },
+	{ id = "radio538", nameToken = "STANDALONE_RADIO_538", url = "http://28513.live.streamtheworld.com/RADIO538.mp3", logo = "images/radio.png", preset = 3 },
+	{ id = "radio10", nameToken = "STANDALONE_RADIO_10", url = "http://25683.live.streamtheworld.com/RADIO10.mp3", logo = "images/radio.png", preset = 4 },
+	{ id = "veronica", nameToken = "STANDALONE_RADIO_VERONICA", url = "http://27903.live.streamtheworld.com/VERONICA.mp3", logo = "images/radio.png", preset = 5 },
+	{ id = "bnr", nameToken = "STANDALONE_RADIO_BNR", url = "http://stream.bnr.nl/bnr_mp3_128_20", logo = "images/radio.png", preset = 6 },
 }
 
 local byId = {}

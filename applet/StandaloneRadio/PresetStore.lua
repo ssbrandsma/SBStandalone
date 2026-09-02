@@ -7,6 +7,15 @@ module(...)
 
 local PresetStore = {}
 PresetStore.__index = PresetStore
+local GENERIC_LOGO = "images/radio.png"
+local legacyPresetLogos = {
+	["images/bnr.png"] = true,
+	["images/npo1.png"] = true,
+	["images/npo2.png"] = true,
+	["images/radio10.png"] = true,
+	["images/radio538.png"] = true,
+	["images/veronica.png"] = true,
+}
 
 
 local function clonePreset(station, preset)
@@ -44,6 +53,18 @@ end
 
 function PresetStore:_migrateDefaults()
 	if self.settings.presets then
+		local changed = false
+		for i = 1, 6 do
+			local preset = self.settings.presets[i] or self.settings.presets[tostring(i)]
+			if preset and legacyPresetLogos[preset.logo] then
+				preset.logo = GENERIC_LOGO
+				changed = true
+			end
+		end
+		if changed then
+			self.applet:storeSettings()
+			self.log:info("StandaloneRadio: migrated preset artwork to generic logo")
+		end
 		return
 	end
 
