@@ -65,7 +65,7 @@ Device firmware: Logitech Squeezebox Radio `baby`, 7.7.3 r16676
 - `Playback:_timerCallback()` pauses audio with `decode:pauseAudio(0)` when `status.audioState` has `DECODE_UNDERRUN` (bit `1 << 1`). LMS normally follows its `STMo` notification with a `strm-u` command, which calls `decode:resumeAudio()`.
 - A standalone stream has no LMS command path, so a temporary output underrun can leave audio paused even while encoded bytes and ICY metadata continue to arrive. Changing volume can make the hardware audio path audible again, which explains the observed symptom.
 - `StreamPlayer` therefore polls decoder status once per second while it owns active playback. It resumes audio once per underrun episode only after `decodeFull` exceeds the normal `decodeThreshold`; ordinary connection-loss retry remains handled by the existing stream watchdog.
-- Six local PNG logos are stored in `applet/StandaloneRadio/images/`, constrained to a maximum of 180 by 110 pixels. They are loaded with `Surface:loadImage()` and cached per station; the radio never downloads artwork at runtime.
+- `applet/StandaloneRadio/images/` contains only the generic `radio.png` fallback. Built-in presets share it to keep the Applet Installer ZIP small; Radio Browser artwork is still cached locally after playback begins.
 
 ## Forum feedback DNS follow-up
 

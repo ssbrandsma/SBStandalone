@@ -60,7 +60,7 @@ Applet Installer is an alternative to SSH deployment. It uses LMS only to discov
 3. On the Radio, go to `Settings -> Advanced -> Networking -> Remote Libraries -> Add New Library` and enter the installer LMS hostname or IP address.
 4. Connect the Radio to that LMS.
 5. In the LMS web interface, open `Settings -> Manage Plugins`.
-6. Add `http://49.12.198.91/sbstandalone/extensions.xml` under `Additional Repositories`, then apply the change. Replace the address if you built with a different `-BaseUrl`.
+6. Add `http://www.bytestack.nl/sbstandalone/extensions.xml` under `Additional Repositories`, then apply the change. Replace the address if you built with a different `-BaseUrl`.
 7. Restart LMS if its plugin page asks for it.
 8. On the Radio, open `Settings -> Advanced -> Applet Installer`.
 9. Select `Standalone Radio`, then select `Install`.
@@ -73,7 +73,7 @@ Applet Installer on stock Radio firmware can remove an installed repository appl
 `VERSION` is the single authoritative applet version. Increase it before a release, then build the installer artifacts:
 
 ```powershell
-.\scripts\build-applet-package.ps1 -BaseUrl 'http://49.12.198.91/sbstandalone'
+.\scripts\build-applet-package.ps1 -BaseUrl 'http://www.bytestack.nl/sbstandalone'
 ```
 
 The build creates ignored files in `dist/`:
@@ -86,8 +86,8 @@ The ZIP contains runtime files directly at archive root, plus `images/`. It inte
 Publish both generated files into one static web directory, for example `/var/www/sbstandalone/` on the VPS. The directory must make these URLs externally reachable:
 
 ```text
-http://49.12.198.91/sbstandalone/extensions.xml
-http://49.12.198.91/sbstandalone/StandaloneRadio-<version>.zip
+http://www.bytestack.nl/sbstandalone/extensions.xml
+http://www.bytestack.nl/sbstandalone/StandaloneRadio-<version>.zip
 ```
 
 The initial repository URL deliberately uses HTTP. The stock 7.7.3 Radio's old HTTP stack and BusyBox tools have limited TLS support, so HTTPS must be tested on the actual Radio before being used for installation. HTTP allows a network attacker to replace the applet download in transit; SHA-1 detects accidental corruption but is not a modern security guarantee. Switch to an HTTPS hostname with `-BaseUrl` once the target firmware is proven to download it reliably.

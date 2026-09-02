@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-	[string]$BaseUrl = "http://49.12.198.91/sbstandalone",
+	[string]$BaseUrl = "http://www.bytestack.nl/sbstandalone",
 	[string]$OutputDirectory
 )
 
@@ -56,13 +56,7 @@ $requiredRootFiles = @(
 	"strings.txt"
 )
 $requiredImageFiles = @(
-	"bnr.png",
-	"npo1.png",
-	"npo2.png",
-	"radio.png",
-	"radio10.png",
-	"radio538.png",
-	"veronica.png"
+	"radio.png"
 )
 
 foreach ($file in $requiredRootFiles) {
