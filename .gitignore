@@ -1,0 +1,3 @@
+# Generated Applet Installer artifacts
+dist/*
+!dist/.gitkeep

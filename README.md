@@ -51,6 +51,49 @@ The script creates `/usr/share/jive/applets/StandaloneRadio/`, copies the applet
 
 The password is provided only to the temporary SSH askpass helper through the process environment. It is not saved in the repository or written to the radio.
 
+## Install Using Applet Installer
+
+Applet Installer is an alternative to SSH deployment. It uses LMS only to discover and install the applet; Standalone Radio does not need LMS or mysqueezebox.com after it has been installed and SqueezePlay has restarted.
+
+1. Build and publish the package as described in [Build And Publish](#build-and-publish).
+2. Connect the Radio to Wi-Fi.
+3. On the Radio, go to `Settings -> Advanced -> Networking -> Remote Libraries -> Add New Library` and enter the installer LMS hostname or IP address.
+4. Connect the Radio to that LMS.
+5. In the LMS web interface, open `Settings -> Manage Plugins`.
+6. Add `http://49.12.198.91/sbstandalone/extensions.xml` under `Additional Repositories`, then apply the change. Replace the address if you built with a different `-BaseUrl`.
+7. Restart LMS if its plugin page asks for it.
+8. On the Radio, open `Settings -> Advanced -> Applet Installer`.
+9. Select `Standalone Radio`, then select `Install`.
+10. Let the Radio restart SqueezePlay, then open `Standalone Radio` from the Home menu and play a station.
+
+Applet Installer on stock Radio firmware can remove an installed repository applet: open `Settings -> Advanced -> Applet Installer`, select `Standalone Radio`, and select `Remove`. It deletes only `/usr/share/jive/applets/StandaloneRadio/`. The next Applet Installer refresh must still be able to see the repository entry for the installed version; otherwise its non-repository listing also offers `Remove`.
+
+### Build And Publish
+
+`VERSION` is the single authoritative applet version. Increase it before a release, then build the installer artifacts:
+
+```powershell
+.\scripts\build-applet-package.ps1 -BaseUrl 'http://49.12.198.91/sbstandalone'
+```
+
+The build creates ignored files in `dist/`:
+
+- `StandaloneRadio-<version>.zip`: the package downloaded by the Radio.
+- `extensions.xml`: repository metadata for LMS.
+
+The ZIP contains runtime files directly at archive root, plus `images/`. It intentionally does not contain an enclosing `StandaloneRadio/` folder, source-control files, development scripts, backups, or documentation. The build validates this layout, parses the generated XML, checks the version, and calculates the SHA-1 included in the XML.
+
+Publish both generated files into one static web directory, for example `/var/www/sbstandalone/` on the VPS. The directory must make these URLs externally reachable:
+
+```text
+http://49.12.198.91/sbstandalone/extensions.xml
+http://49.12.198.91/sbstandalone/StandaloneRadio-<version>.zip
+```
+
+The initial repository URL deliberately uses HTTP. The stock 7.7.3 Radio's old HTTP stack and BusyBox tools have limited TLS support, so HTTPS must be tested on the actual Radio before being used for installation. HTTP allows a network attacker to replace the applet download in transit; SHA-1 detects accidental corruption but is not a modern security guarantee. Switch to an HTTPS hostname with `-BaseUrl` once the target firmware is proven to download it reliably.
+
+The build never publishes files or stores VPS credentials. Copy the two generated files to the web server using the deployment method already configured for that server. A versioned ZIP filename is required to avoid LMS and proxy caches serving an earlier artifact.
+
 ## Everyday Use
 
 | Control | Action |
@@ -114,6 +157,24 @@ To inspect the latest radio log without deploying:
 Useful log entries start with `StandaloneRadio:`. A successful boot includes `Registering: StandaloneRadio` and `standalone mode controls enabled`.
 
 If deployment cannot connect, first confirm the radio's current DHCP address, Wi-Fi connection, root SSH access, and password. If a station shows `Connection failed`, check the radio has DNS/internet access and verify the stream endpoint has not changed. The applet logs the resolver failure but never displays internal addresses on the radio screen.
+
+## Applet Installer Troubleshooting
+
+### Applet Does Not Appear
+
+Confirm LMS can fetch and parse `extensions.xml`, then restart or reload LMS after adding the repository. Verify the Radio is connected to that LMS and that the entry has `target="baby"`, `minTarget="7.7"`, and `maxTarget="*"`. The installer requests the applet list from its connected LMS, not directly from the repository URL.
+
+### Download Fails
+
+Verify the published ZIP URL is reachable over HTTP without a login page, redirect, or firewall block. Confirm the URL in `extensions.xml` has the versioned filename and its SHA-1 exactly matches `Get-FileHash -Algorithm SHA1 dist\StandaloneRadio-<version>.zip`. Do not use HTTPS until it has been tested on the stock Radio.
+
+### Applet Installs But Does Not Load
+
+The ZIP must contain `StandaloneRadioApplet.lua` and `StandaloneRadioMeta.lua` at archive root, with `images/` beneath that root. Inspect `/var/log/messages` for `Registering: StandaloneRadio` and any Lua error. The SSH deployment remains a useful way to restore or debug the applet.
+
+### Wrong Version Or No Update
+
+Increase `VERSION`, rebuild, and publish a ZIP with the new version in its filename. Confirm that `extensions.xml` references the same version and new SHA-1. LMS caches repository XML briefly, and HTTP caches may retain an old file when a ZIP filename is reused.
 
 ## How It Works
 
