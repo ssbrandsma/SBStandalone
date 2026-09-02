@@ -3,6 +3,14 @@
 Date: 2026-08-31
 Device firmware: Logitech Squeezebox Radio `baby`, 7.7.3 r16676
 
+## Applet Installer packaging findings
+
+- Stock `SetupAppletInstallerApplet.lua` requests `jiveapplets target:<machine> version:<firmware version>` from the connected LMS and creates `/usr/share/jive/applets/<name>/` before extracting the downloaded archive into that directory.
+- Its `zipfilter` passes every archive entry through unchanged under that target directory. Therefore an applet ZIP must have `StandaloneRadioApplet.lua`, `StandaloneRadioMeta.lua`, helper Lua files, and `strings.txt` at archive root. Nested directories such as `images/` work correctly; an enclosing `StandaloneRadio/` root would incorrectly install as `/usr/share/jive/applets/StandaloneRadio/StandaloneRadio/`.
+- The Radio fetches the ZIP twice when `sha` is present: first to calculate SHA-1, then to extract it. The repository build must use the exact lower-case SHA-1 of the versioned ZIP.
+- LMS 9.1.1 registers `jiveapplets` through `Slim::Control::Jive` and obtains repository entries through `Slim::Utils::ExtensionsManager`. It filters the repository entry by target and min/max target version, then supplies its URL and SHA to the Radio. `target="baby"`, `minTarget="7.7"`, `maxTarget="*"` covers stock Radio 7.7.3 and later compatible Community Firmware without advertising to unrelated devices.
+- The installed Applet Installer provides both repository and non-repository removal paths. It recursively removes only the selected `/usr/share/jive/applets/<name>/` directory and restarts Jive.
+
 ## Key findings from the device
 
 1. `Playback` is instantiated in `/usr/share/jive/jive/slim/LocalPlayer.lua:90` as `obj.playback = Playback(jnt, obj.slimproto)`.
