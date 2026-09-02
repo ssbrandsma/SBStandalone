@@ -17,6 +17,8 @@ StreamPlayer.__index = StreamPlayer
 local reconnectDelays = { 2000, 5000, 10000, 30000 }
 local WATCHDOG_INTERVAL = 30000
 local WATCHDOG_STALL_POLLS = 2
+local AUDIO_RECOVERY_INTERVAL = 1000
+local DECODE_UNDERRUN = (1 << 1)
 
 
 local function localPlayback()
@@ -40,11 +42,13 @@ function new(options)
 		generation = 0,
 		state = "STOPPED",
 		watchdogStalls = 0,
+		audioUnderrunRecovered = false,
 	}, StreamPlayer)
 	player.resolver = Resolver.new({
 		log = options.log,
 	})
 	player:_startWatchdog()
+	player:_startAudioRecovery()
 	return player
 end
 
@@ -66,6 +70,11 @@ function StreamPlayer:_resetWatchdog()
 end
 
 
+function StreamPlayer:_resetAudioRecovery()
+	self.audioUnderrunRecovered = false
+end
+
+
 function StreamPlayer:_startWatchdog()
 	if self.watchdogTimer then
 		return
@@ -75,6 +84,50 @@ function StreamPlayer:_startWatchdog()
 		self:_watchdogTick()
 	end)
 	self.watchdogTimer:start()
+end
+
+
+function StreamPlayer:_startAudioRecovery()
+	if self.audioRecoveryTimer then
+		return
+	end
+
+	self.audioRecoveryTimer = Timer(AUDIO_RECOVERY_INTERVAL, function()
+		self:_audioRecoveryTick()
+	end)
+	self.audioRecoveryTimer:start()
+end
+
+
+function StreamPlayer:_audioRecoveryTick()
+	if not self.playbackActive or self.intentionalStop then
+		self:_resetAudioRecovery()
+		return
+	end
+
+	local okStatus, status = pcall(function()
+		return decode:status()
+	end)
+	if not okStatus or type(status) ~= "table" then
+		return
+	end
+
+	if status.audioState & DECODE_UNDERRUN == 0 then
+		self:_resetAudioRecovery()
+		return
+	end
+
+	local threshold = tonumber(self.hookedPlayback and self.hookedPlayback.decodeThreshold) or 2048
+	local buffered = tonumber(status.decodeFull) or 0
+	if self.audioUnderrunRecovered or buffered <= threshold then
+		return
+	end
+
+	-- Playback pauses audio after an output underrun and expects LMS to send strm-u.
+	-- In standalone mode, resume it locally once enough stream data has accumulated.
+	decode:resumeAudio()
+	self.audioUnderrunRecovered = true
+	self.log:warn("StandaloneRadio: resumed audio after output underrun")
 end
 
 
@@ -208,6 +261,7 @@ function StreamPlayer:_handleDisconnect(reason, flush)
 	self.playbackActive = false
 	self.currentMetadata = nil
 	self:_resetWatchdog()
+	self:_resetAudioRecovery()
 	self:_notifyState(station, "CONNECTION_LOST", false)
 	self.log:warn("StandaloneRadio: stream disconnected ", tostring(reason))
 	self:_scheduleReconnect(station, generation)
@@ -267,6 +321,7 @@ function StreamPlayer:_begin(station, reconnect)
 	self.currentMetadata = nil
 	self.playbackActive = false
 	self:_resetWatchdog()
+	self:_resetAudioRecovery()
 	if not reconnect then
 		self.retryIndex = 1
 		self.lastStation = station
@@ -347,6 +402,7 @@ function StreamPlayer:stop()
 	self.currentMetadata = nil
 	self.playbackActive = false
 	self:_resetWatchdog()
+	self:_resetAudioRecovery()
 	self:_stopPlayback()
 	if self.lastStation then
 		self:_notifyState(self.lastStation, "STOPPED", false)

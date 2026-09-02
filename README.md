@@ -95,7 +95,7 @@ Preset assignments survive reboot. Existing installations are migrated to the or
 
 Selecting a station opens Now Playing immediately. It keeps the station logo and name visible and displays one of these statuses: `Resolving...`, `Connecting...`, `Playing`, `Stopped`, or `Connection failed`.
 
-The applet requests ICY metadata only through the stock stream engine. When a stream provides it, its `StreamTitle` replaces `Playing`; otherwise the screen simply stays on `Playing`. Radio 538, Radio 10, and Radio Veronica advertised ICY metadata when last tested. NPO Radio 1 and NPO Radio 2 may not provide a track title.
+The applet requests ICY metadata only through the stock stream engine. When a stream provides it, its `StreamTitle` replaces `Playing`; otherwise the screen simply stays on `Playing`. Radio 538, Radio 10, and Radio Veronica advertised ICY metadata when last tested. NPO Radio 1 and NPO Radio 2 may not provide a track title. A `StreamTitle` log entry is metadata only; it does not affect audio.
 
 ## Update And Diagnose
 
@@ -120,5 +120,7 @@ If deployment cannot connect, first confirm the radio's current DHCP address, Wi
 The applet obtains the existing local player through `Player:getLocalPlayer().playback`, resolves station hosts asynchronously through BusyBox `nslookup`, and starts the stock MP3 stream/decode path with `playback:_streamConnect()`. Stop and station switches use `playback:stopInternal()`.
 
 For ICY-capable streams, it asks for metadata, reads the server's `icy-metaint` response through the playback instance, and enables SqueezePlay's built-in native metadata filter. That filter keeps metadata bytes out of the MP3 decoder. The applet observes the resulting native `META` notifications to update the on-screen label. It does not implement its own socket reader or modify stock playback code.
+
+The stock playback engine pauses audio after an output-buffer underrun and normally waits for LMS to send a resume command. StandaloneRadio checks for that paused state once per second and resumes audio locally once the encoded stream buffer has refilled. This avoids a temporary network hiccup leaving a healthy stream silent.
 
 See [research.md](research.md) for the firmware-specific investigation and [device-backups/README.md](device-backups/README.md) for the stock-file backup policy.
