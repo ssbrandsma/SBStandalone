@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-	[string]$BaseUrl = "http://www.bytestack.nl/sbstandalone",
+	[string]$BaseUrl = "http://49.12.198.91/sbstandalone",
 	[string]$OutputDirectory
 )
 
