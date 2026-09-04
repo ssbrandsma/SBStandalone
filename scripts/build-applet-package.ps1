@@ -44,6 +44,7 @@ if (-not $repositoryUri.IsAbsoluteUri -or $repositoryUri.Scheme -notin @("http",
 $BaseUrl = $BaseUrl.TrimEnd('/')
 
 $requiredRootFiles = @(
+	"Countries.lua",
 	"LogoCache.lua",
 	"NowPlaying.lua",
 	"PresetStore.lua",
