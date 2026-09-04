@@ -1,4 +1,4 @@
-local ipairs, os, tostring = ipairs, os, tostring
+local ipairs, os, pcall, setmetatable, tostring = ipairs, os, pcall, setmetatable, tostring
 
 local oo = require("loop.simple")
 local table = require("table")
@@ -11,6 +11,7 @@ local Keyboard = require("jive.ui.Keyboard")
 local Label = require("jive.ui.Label")
 local Popup = require("jive.ui.Popup")
 local SimpleMenu = require("jive.ui.SimpleMenu")
+local Surface = require("jive.ui.Surface")
 local Textinput = require("jive.ui.Textinput")
 local Timer = require("jive.ui.Timer")
 local Window = require("jive.ui.Window")
@@ -24,10 +25,13 @@ local Stations = require("applets.StandaloneRadio.Stations")
 local StreamPlayer = require("applets.StandaloneRadio.StreamPlayer")
 
 local log = require("jive.utils.log").logger("StandaloneRadio")
+local jnt = jnt
 
 local AUTOTEST_MARKER = "/tmp/standalone-radio-autotest"
 local DEFAULT_COUNTRY_CODE = "NL"
 local POPULAR_LIMIT = 100
+local HOME_ICON_STYLE = "hm_standaloneRadio"
+local HOME_ICON_PATH = "applets/StandaloneRadio/images/icon_internet_radio.png"
 
 module(..., Framework.constants)
 oo.class(_M, Applet)
@@ -103,8 +107,40 @@ function _ensureComponents(self)
 end
 
 
+function _installHomeIconStyle(self)
+	local styles = jive.ui.style
+	local parent = styles and styles.hm_radio
+	if not parent then
+		log:warn("StandaloneRadio: Home icon style unavailable")
+		return
+	end
+
+	if not self.homeIconSurface then
+		local ok, surface = pcall(function()
+			return Surface:loadImage(HOME_ICON_PATH)
+		end)
+		if not ok or not surface then
+			log:warn("StandaloneRadio: unable to load Home icon ", HOME_ICON_PATH)
+			return
+		end
+		self.homeIconSurface = surface
+	end
+
+	-- Keep the active skin's layout while replacing only its TuneIn artwork.
+	styles[HOME_ICON_STYLE] = setmetatable({ img = self.homeIconSurface }, { __index = parent })
+	Framework:styleChanged()
+end
+
+
 function init(self)
+	jnt:subscribe(self)
 	self:_ensureComponents()
+	self:_installHomeIconStyle()
+end
+
+
+function notify_skinSelected(self)
+	self:_installHomeIconStyle()
 end
 
 
@@ -193,12 +229,14 @@ function _refreshMenu(self)
 	end
 
 	local items = {
-		text = self:string("STANDALONE_RADIO_BROWSER"),
-		sound = "SELECT",
-		weight = 1,
-		callback = function()
-			self:radioBrowserMenu()
-		end,
+		{
+			text = self:string("STANDALONE_RADIO_BROWSER"),
+			sound = "SELECT",
+			weight = 1,
+			callback = function()
+				self:radioBrowserMenu()
+			end,
+		},
 	}
 
 	self.menuWidget:setItems(items)
