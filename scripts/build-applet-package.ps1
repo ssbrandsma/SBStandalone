@@ -57,6 +57,7 @@ $requiredRootFiles = @(
 	"strings.txt"
 )
 $requiredImageFiles = @(
+	"icon_internet_radio.png",
 	"radio.png"
 )
 
@@ -139,6 +140,14 @@ try {
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>
     </applet>
+    <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="fab4" minTarget="7.7" maxTarget="*">
+      <title lang="EN">Standalone Radio</title>
+      <desc lang="EN">Standalone internet radio playback for Squeezebox Touch. LMS is only needed to install the applet.</desc>
+      <changes lang="EN">Applet Installer package release $version.</changes>
+      <creator>Sjoerd Brandsma</creator>
+      <url>$(Escape-Xml $zipUrl)</url>
+      <sha>$sha1</sha>
+    </applet>
   </applets>
 </extensions>
 "@
@@ -146,9 +155,15 @@ try {
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 
 	[xml]$parsedXml = Get-Content -LiteralPath $repositoryPath -Raw
-	$applet = $parsedXml.extensions.applets.applet
-	if ($applet.name -ne "StandaloneRadio" -or $applet.version -ne $version -or $applet.sha -ne $sha1 -or $applet.url -ne $zipUrl) {
-		Fail "generated extensions.xml did not round-trip with the expected applet metadata"
+	$applets = @($parsedXml.extensions.applets.applet)
+	if ($applets.Count -ne 2) {
+		Fail "generated extensions.xml must contain exactly two StandaloneRadio targets"
+	}
+	foreach ($target in @("baby", "fab4")) {
+		$targetApplet = @($applets | Where-Object { $_.target -eq $target })
+		if ($targetApplet.Count -ne 1 -or $targetApplet[0].name -ne "StandaloneRadio" -or $targetApplet[0].version -ne $version -or $targetApplet[0].sha -ne $sha1 -or $targetApplet[0].url -ne $zipUrl) {
+			Fail "generated extensions.xml did not round-trip with the expected $target applet metadata"
+		}
 	}
 }
 finally {
