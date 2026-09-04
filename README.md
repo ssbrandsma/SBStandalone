@@ -7,7 +7,7 @@ The applet is designed for the stock Squeezebox Radio firmware and uses the radi
 ## What It Does
 
 - Starts one of six internet stations with the physical preset buttons, even from the Home screen.
-- Provides a `Standalone Radio` Home menu for selecting stations on-screen.
+- Provides a `Standalone Radio` Home menu that opens the on-screen Radio Browser.
 - Shows a native-style Now Playing screen with the station name, local logo, connection state, and available song title metadata.
 - Uses the radio's configured network DNS server. No station IP addresses are hardcoded.
 - Treats Pause and Stop as Stop for live radio. Play restarts the last selected station.
@@ -112,9 +112,13 @@ Preset and transport handling is enabled when SqueezePlay starts, so the six sta
 
 ## Radio Browser
 
-The `Radio Browser` menu opens a dynamic station directory using the public Radio Browser API. Version 0.2 deliberately shows a conservative list of popular Dutch stations: HTTP streams, MP3 codec, reported working, and limited to a small result set so the Radio is not asked to hold a large database in memory.
+The `Radio Browser` menu has local `Search`, `Popular`, `All stations`, `Country`, and `Refresh stations` views. The default country is the Netherlands (`NL`), selected with an offline built-in ISO country list. The selected country code survives restart; an invalid saved value falls back to `NL`.
 
-Browsing Radio Browser requires internet access at the time you open that menu. Saved presets do not: once a station is assigned to a preset, the station name and stream URL are stored locally and can be played without contacting Radio Browser again.
+For each selected country, StandaloneRadio downloads every matching Radio Browser station in deterministic pages (HTTP MP3, non-HTTPS, non-broken), up to a safety maximum of 5,000 stations. It keeps a separate cache for each country under `/etc/squeezeplay/userpath/StandaloneRadio/cache/stations/`. A fresh cache opens immediately without a request; a stale cache opens immediately and refreshes in the background. Cached countries remain browseable offline, and `Refresh stations` refreshes only the selected country.
+
+Search is a local, case-insensitive substring search over the selected country's cached directory. `Popular` is also local, ranked by click count, votes, then station name and limited to its 100-item menu view. `All stations` contains the complete cached country directory in alphabetical order. Opening these views never downloads station artwork.
+
+Saved presets do not depend on the selected country or its cache: once a station is assigned, its name and stream URL are stored locally and can be played without contacting Radio Browser again.
 
 ## Station Artwork
 

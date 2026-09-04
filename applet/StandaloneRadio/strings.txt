@@ -42,6 +42,34 @@ STANDALONE_RADIO_BROWSER_FAILED
 	EN	Unable to load station list
 	NL	Kan zenderlijst niet laden
 
+STANDALONE_RADIO_SEARCH
+	EN	Search
+	NL	Zoeken
+
+STANDALONE_RADIO_POPULAR
+	EN	Popular
+	NL	Populair
+
+STANDALONE_RADIO_ALL_STATIONS
+	EN	All stations
+	NL	Alle zenders
+
+STANDALONE_RADIO_COUNTRY
+	EN	Country
+	NL	Land
+
+STANDALONE_RADIO_REFRESH
+	EN	Refresh stations
+	NL	Zenders vernieuwen
+
+STANDALONE_RADIO_LOADING_STATIONS
+	EN	Loading stations...
+	NL	Zenders laden...
+
+STANDALONE_RADIO_NO_STATIONS
+	EN	No stations found
+	NL	Geen zenders gevonden
+
 STANDALONE_RADIO_PRESET_SAVED
 	EN	Saved to preset %d
 	NL	Opgeslagen onder voorkeuze %d

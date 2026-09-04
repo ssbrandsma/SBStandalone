@@ -123,6 +123,7 @@ function PresetStore:updateLogo(station)
 		return
 	end
 
+	local changed = false
 	for i = 1, 6 do
 		local preset = self.settings.presets[i] or self.settings.presets[tostring(i)]
 		if preset and (
@@ -132,8 +133,11 @@ function PresetStore:updateLogo(station)
 			preset.favicon = station.favicon or station.remoteLogo or preset.favicon
 			preset.remoteLogo = station.remoteLogo or station.favicon or preset.remoteLogo
 			preset.logoPath = station.logoPath or preset.logoPath
-			self.applet:storeSettings()
+			changed = true
 			self.log:info("StandaloneRadio: preset ", tostring(i), " logo updated")
 		end
+	end
+	if changed then
+		self.applet:storeSettings()
 	end
 end

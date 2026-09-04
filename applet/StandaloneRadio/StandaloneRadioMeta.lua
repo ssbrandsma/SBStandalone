@@ -27,7 +27,7 @@ end
 
 
 function registerApplet(meta)
-	jiveMain:addItem(meta:menuItem('standaloneRadio', 'home', "STANDALONE_RADIO", function(applet, ...) applet:menu() end, 45, nil, "hm_radio"))
+	jiveMain:addItem(meta:menuItem('standaloneRadio', 'home', "STANDALONE_RADIO", function(applet, ...) applet:menu() end, 45, nil, "hm_radios"))
 
 	-- This is a standalone radio, so its physical preset/transport controls are
 	-- active immediately after boot rather than only after opening its menu.
