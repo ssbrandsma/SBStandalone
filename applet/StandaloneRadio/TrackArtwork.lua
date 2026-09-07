@@ -162,7 +162,7 @@ function TrackArtwork:lookup(station, streamTitle)
 			["Connection"] = "close",
 		} })
 		self.http = SocketHttp(jnt, ip, API_PORT, "StandaloneRadioTrackArtwork")
-		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.7.1" } end
+		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.7.2" } end
 		self.http:fetch(request)
 	end)
 end
