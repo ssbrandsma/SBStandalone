@@ -6,13 +6,13 @@ The applet is designed for the stock Squeezebox Radio firmware and uses the radi
 
 ## What It Does
 
-- Starts one of six internet stations with the physical preset buttons, even from the Home screen.
+- Plays stations saved to physical preset buttons, even from the Home screen.
 - Provides a `Standalone Radio` Home menu that opens the on-screen Radio Browser.
 - Shows a native-style Now Playing screen with the station name, local logo, connection state, and available song title metadata.
 - Uses the radio's configured network DNS server. No station IP addresses are hardcoded.
 - Treats Pause and Stop as Stop for live radio. Play restarts the last selected station.
 
-The included presets are NPO Radio 1, NPO Radio 2, Radio 538, Radio 10, Radio Veronica, and BNR Nieuwsradio. They can be changed in the centralized `stations` table in [StandaloneRadioApplet.lua](applet/StandaloneRadio/StandaloneRadioApplet.lua).
+New installations have no preloaded stations. Assign any Radio Browser station to a physical preset button when you want quick access.
 
 ## Requirements
 
@@ -98,17 +98,12 @@ The build never publishes files or stores VPS credentials. Copy the two generate
 
 | Control | Action |
 | --- | --- |
-| `1` | NPO Radio 1 |
-| `2` | NPO Radio 2 |
-| `3` | Radio 538 |
-| `4` | Radio 10 |
-| `5` | Radio Veronica |
-| `6` | BNR Nieuwsradio |
+| `1`-`6` | Play a saved preset, if assigned |
 | Pause or Stop | Stop the live stream |
 | Play | Restart the last selected station |
 | Back, from Now Playing | Return to the station menu while playback continues |
 
-Preset and transport handling is enabled when SqueezePlay starts, so the six station buttons work without first opening the applet menu. Volume remains the normal stock volume control.
+Preset and transport handling is enabled when SqueezePlay starts, so assigned preset buttons work without first opening the applet menu. Volume remains the normal stock volume control.
 
 ## Radio Browser
 
@@ -128,7 +123,7 @@ On stock 7.7.3 firmware, runtime artwork download is intentionally conservative:
 
 ## Assigning Presets
 
-To replace a preset:
+To assign or replace a preset:
 
 1. Open `Standalone Radio`.
 2. Open `Radio Browser`.
@@ -136,13 +131,15 @@ To replace a preset:
 4. Press and hold preset button `1`-`6`.
 5. Short-press that preset later to play the saved station.
 
-Preset assignments survive reboot. Existing installations are migrated to the original six defaults until you replace them: NPO Radio 1, NPO Radio 2, Radio 538, Radio 10, Radio Veronica, and BNR Nieuwsradio.
+Preset assignments survive reboot. The former built-in Dutch presets are removed during migration; stations you assigned from Radio Browser are preserved.
 
 ## Now Playing And Metadata
 
 Selecting a station opens Now Playing immediately. It keeps the station logo and name visible and displays one of these statuses: `Resolving...`, `Connecting...`, `Playing`, `Stopped`, or `Connection failed`.
 
-The applet requests ICY metadata only through the stock stream engine. When a stream provides it, its `StreamTitle` replaces `Playing`; otherwise the screen simply stays on `Playing`. Radio 538, Radio 10, and Radio Veronica advertised ICY metadata when last tested. NPO Radio 1 and NPO Radio 2 may not provide a track title. A `StreamTitle` log entry is metadata only; it does not affect audio.
+The applet requests ICY metadata only through the stock stream engine. When a stream provides it, its `StreamTitle` replaces `Playing`; otherwise the screen simply stays on `Playing`. A `StreamTitle` log entry is metadata only; it does not affect audio.
+
+For `Artist - Title` metadata, StandaloneRadio optionally looks up current-track artwork through the Lyrion cloud API once per song change. Artwork is held only in memory for the current track; station artwork remains the fallback and no track-artwork cache is written to disk.
 
 ## Update And Diagnose
 

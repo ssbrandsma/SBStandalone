@@ -1,4 +1,4 @@
-local ipairs, os, pcall, setmetatable, tostring = ipairs, os, pcall, setmetatable, tostring
+local ipairs, os, tostring = ipairs, os, tostring
 
 local oo = require("loop.simple")
 local table = require("table")
@@ -11,7 +11,6 @@ local Keyboard = require("jive.ui.Keyboard")
 local Label = require("jive.ui.Label")
 local Popup = require("jive.ui.Popup")
 local SimpleMenu = require("jive.ui.SimpleMenu")
-local Surface = require("jive.ui.Surface")
 local Textinput = require("jive.ui.Textinput")
 local Timer = require("jive.ui.Timer")
 local Window = require("jive.ui.Window")
@@ -23,15 +22,13 @@ local PresetStore = require("applets.StandaloneRadio.PresetStore")
 local RadioBrowser = require("applets.StandaloneRadio.RadioBrowser")
 local Stations = require("applets.StandaloneRadio.Stations")
 local StreamPlayer = require("applets.StandaloneRadio.StreamPlayer")
+local TrackArtwork = require("applets.StandaloneRadio.TrackArtwork")
 
 local log = require("jive.utils.log").logger("StandaloneRadio")
-local jnt = jnt
 
 local AUTOTEST_MARKER = "/tmp/standalone-radio-autotest"
 local DEFAULT_COUNTRY_CODE = "NL"
 local POPULAR_LIMIT = 100
-local HOME_ICON_STYLE = "hm_standaloneRadio"
-local HOME_ICON_PATH = "applets/StandaloneRadio/images/icon_internet_radio.png"
 
 module(..., Framework.constants)
 oo.class(_M, Applet)
@@ -45,11 +42,6 @@ end
 function _ensureComponents(self)
 	if self.streamPlayer then
 		return true
-	end
-
-	if not Stations.validate(log) then
-		log:error("StandaloneRadio: station configuration disabled")
-		return false
 	end
 
 	local settings = self:getSettings() or {}
@@ -69,13 +61,17 @@ function _ensureComponents(self)
 		applet = self,
 		log = log,
 	})
-	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1) or Stations.getById(settings.lastStationId)
+	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1)
 	self.nowPlaying = NowPlaying.new(self, log, {
 		onClose = function()
 			if self.streamPlayer then
 				self.streamPlayer:stopConnecting()
 			end
 		end,
+	})
+	self.trackArtwork = TrackArtwork.new({
+		log = log,
+		nowPlaying = self.nowPlaying,
 	})
 	self.streamPlayer = StreamPlayer.new({
 		log = log,
@@ -87,9 +83,11 @@ function _ensureComponents(self)
 			end,
 			onMetadata = function(title)
 				self.nowPlaying:setMetadata(title)
+				self.trackArtwork:lookup(self.streamPlayer:getCurrentStation(), title)
 			end,
 			onSelected = function(station)
 				self.lastStation = station
+				self.trackArtwork:reset(station)
 				settings.lastStationId = station.id
 				if station.preset then
 					settings.lastPreset = station.preset
@@ -107,40 +105,8 @@ function _ensureComponents(self)
 end
 
 
-function _installHomeIconStyle(self)
-	local styles = jive.ui.style
-	local parent = styles and styles.hm_radio
-	if not parent then
-		log:warn("StandaloneRadio: Home icon style unavailable")
-		return
-	end
-
-	if not self.homeIconSurface then
-		local ok, surface = pcall(function()
-			return Surface:loadImage(HOME_ICON_PATH)
-		end)
-		if not ok or not surface then
-			log:warn("StandaloneRadio: unable to load Home icon ", HOME_ICON_PATH)
-			return
-		end
-		self.homeIconSurface = surface
-	end
-
-	-- Keep the active skin's layout while replacing only its TuneIn artwork.
-	styles[HOME_ICON_STYLE] = setmetatable({ img = self.homeIconSurface }, { __index = parent })
-	Framework:styleChanged()
-end
-
-
 function init(self)
-	jnt:subscribe(self)
 	self:_ensureComponents()
-	self:_installHomeIconStyle()
-end
-
-
-function notify_skinSelected(self)
-	self:_installHomeIconStyle()
 end
 
 
@@ -273,9 +239,18 @@ function _refreshCountry(self, code, showProgress)
 			return
 		end
 		if stations then
+			self.directoryError = nil
+			self.directoryRefreshing = nil
+			self.directoryLoadingCount = nil
 			self:_setDirectory(code, stations)
 		elseif not self.activeStations or #self.activeStations == 0 then
 			self.directoryError = err
+			self.directoryRefreshing = nil
+			self.directoryLoadingCount = nil
+			self:_renderRadioBrowserMenu()
+		else
+			self.directoryRefreshing = nil
+			self.directoryLoadingCount = nil
 			self:_renderRadioBrowserMenu()
 		end
 	end, function(count)
@@ -284,6 +259,11 @@ function _refreshCountry(self, code, showProgress)
 			self:_renderRadioBrowserMenu()
 		end
 	end)
+	if started and showProgress and code == self.activeCountryCode and identity == self.directoryIdentity then
+		self.directoryRefreshing = true
+		self.directoryLoadingCount = 0
+		self:_renderRadioBrowserMenu()
+	end
 	return started
 end
 
@@ -291,6 +271,7 @@ end
 function _activateCountry(self, code)
 	self.directoryIdentity = (self.directoryIdentity or 0) + 1
 	self.directoryError = nil
+	self.directoryRefreshing = nil
 	self.directoryLoadingCount = nil
 	local stations, stale = self.radioBrowser:loadCache(code)
 	self:_setDirectory(code, stations)
@@ -369,10 +350,16 @@ end
 
 function _showSearch(self)
 	local window = Window("text_list", self:string("STANDALONE_RADIO_SEARCH"))
-	local input = Textinput("textinput", Textinput.textValue("", 64, 200), function(_, value)
-		window:hide()
-		self:_showSearchResults(value)
+	local function submitSearch(value)
+		local query = tostring(value or "")
+		_logInfo("search submitted query=", query)
+		-- Push results above the keyboard. Hiding this window first races the
+		-- touchscreen's finish action and can leave the screen unchanged.
+		self:_showSearchResults(query)
 		return true
+	end
+	local input = Textinput("textinput", Textinput.textValue("", 0, 64), function(_, value)
+		return submitSearch(value)
 	end)
 	local backspace = Keyboard.backspace()
 	local group = Group("keyboard_textinput", { textinput = input, backspace = backspace })
@@ -415,19 +402,25 @@ end
 function _renderRadioBrowserMenu(self)
 	if not self.browserMenuWidget then return end
 	local code = self.activeCountryCode or self:_selectedCountryCode()
+	local stationCount = self.activeStations and #self.activeStations or nil
+	local popularCount = stationCount and (stationCount > POPULAR_LIMIT and POPULAR_LIMIT or stationCount) or nil
+	local popularLabel = tostring(self:string("STANDALONE_RADIO_POPULAR"))
+	local allStationsLabel = tostring(self:string("STANDALONE_RADIO_ALL_STATIONS"))
+	if popularCount then popularLabel = popularLabel .. " (" .. tostring(popularCount) .. ")" end
+	if stationCount then allStationsLabel = allStationsLabel .. " (" .. tostring(stationCount) .. ")" end
 	local items = {
 		{ text = self:string("STANDALONE_RADIO_SEARCH"), sound = "SELECT", weight = 1, callback = function() self:_showSearch() end },
-		{ text = self:string("STANDALONE_RADIO_POPULAR"), sound = "SELECT", weight = 2, callback = function() self:_showPopular() end },
-		{ text = self:string("STANDALONE_RADIO_ALL_STATIONS"), sound = "SELECT", weight = 3, callback = function() self:_showAllStations() end },
-		{ text = self:string("STANDALONE_RADIO_COUNTRY") .. ": " .. Countries.displayName(code), sound = "SELECT", weight = 4, callback = function() self:_showCountryMenu() end },
-		{ text = self:string("STANDALONE_RADIO_REFRESH"), sound = "SELECT", weight = 5, callback = function() self:_refreshCountry(code, false) end },
+		{ text = popularLabel, sound = "SELECT", weight = 2, callback = function() self:_showPopular() end },
+		{ text = allStationsLabel, sound = "SELECT", weight = 3, callback = function() self:_showAllStations() end },
+		{ text = tostring(self:string("STANDALONE_RADIO_COUNTRY")) .. ": " .. Countries.displayName(code), sound = "SELECT", weight = 4, callback = function() self:_showCountryMenu() end },
+		{ text = self:string("STANDALONE_RADIO_REFRESH"), sound = "SELECT", weight = 5, callback = function() self:_refreshCountry(code, true) end },
 	}
-	if not self.activeStations then
-		local loading = self:string("STANDALONE_RADIO_LOADING_STATIONS")
+	if self.directoryError then
+		items[#items + 1] = { text = self:string("STANDALONE_RADIO_BROWSER_FAILED"), style = "item", weight = 6 }
+	elseif not self.activeStations or self.directoryRefreshing then
+		local loading = tostring(self:string("STANDALONE_RADIO_LOADING_STATIONS"))
 		if self.directoryLoadingCount then loading = loading .. " " .. tostring(self.directoryLoadingCount) end
 		items[#items + 1] = { text = loading, style = "item", weight = 6 }
-	elseif self.directoryError then
-		items[#items + 1] = { text = self:string("STANDALONE_RADIO_BROWSER_FAILED"), style = "item", weight = 6 }
 	end
 	self.browserMenuWidget:setItems(items)
 	self.browserMenuWidget:reLayout()
@@ -442,6 +435,9 @@ function radioBrowserMenu(self)
 	window:addWidget(menu)
 	self.browserMenuWidget = menu
 	window:addListener(EVENT_WINDOW_POP, function() self.browserMenuWidget = nil end)
+	-- Populate the browser before showing its window. Stock Jive menus can
+	-- otherwise display an empty first frame while the directory activates.
+	self:_renderRadioBrowserMenu()
 	self:tieAndShowWindow(window)
 	self:_activateCountry(self:_selectedCountryCode())
 end

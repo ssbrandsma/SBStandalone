@@ -7,15 +7,6 @@ module(...)
 
 local PresetStore = {}
 PresetStore.__index = PresetStore
-local GENERIC_LOGO = "images/radio.png"
-local legacyPresetLogos = {
-	["images/bnr.png"] = true,
-	["images/npo1.png"] = true,
-	["images/npo2.png"] = true,
-	["images/radio10.png"] = true,
-	["images/radio538.png"] = true,
-	["images/veronica.png"] = true,
-}
 
 
 local function clonePreset(station, preset)
@@ -29,7 +20,7 @@ local function clonePreset(station, preset)
 		logo = station.logo,
 		logoPath = station.logoPath,
 		remoteLogo = station.remoteLogo,
-		source = station.source or "builtin",
+		source = station.source or "user",
 		codec = station.codec,
 		bitrate = station.bitrate,
 		countrycode = station.countrycode,
@@ -56,26 +47,22 @@ function PresetStore:_migrateDefaults()
 		local changed = false
 		for i = 1, 6 do
 			local preset = self.settings.presets[i] or self.settings.presets[tostring(i)]
-			if preset and legacyPresetLogos[preset.logo] then
-				preset.logo = GENERIC_LOGO
+			if preset and preset.source == "builtin" then
+				self.settings.presets[i] = nil
+				self.settings.presets[tostring(i)] = nil
 				changed = true
 			end
 		end
 		if changed then
 			self.applet:storeSettings()
-			self.log:info("StandaloneRadio: migrated preset artwork to generic logo")
+			self.log:info("StandaloneRadio: removed retired built-in presets")
 		end
 		return
 	end
 
 	self.settings.presets = {}
-	for _, station in ipairs(Stations.all()) do
-		if station.preset then
-			self.settings.presets[station.preset] = clonePreset(station, station.preset)
-		end
-	end
 	self.applet:storeSettings()
-	self.log:info("StandaloneRadio: initialized default presets")
+	self.log:info("StandaloneRadio: initialized empty presets")
 end
 
 
@@ -92,15 +79,6 @@ function PresetStore:getPreset(number)
 		return nil
 	end
 	return preset
-end
-
-
-function PresetStore:all()
-	local presets = {}
-	for i = 1, 6 do
-		presets[i] = self:getPreset(i)
-	end
-	return presets
 end
 
 
