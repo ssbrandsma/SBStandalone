@@ -5,6 +5,7 @@ local string = require("string")
 local Player = require("jive.slim.Player")
 local Resolver = require("applets.StandaloneRadio.Resolver")
 local Stream = require("squeezeplay.stream")
+local Framework = require("jive.ui.Framework")
 local Task = require("jive.ui.Task")
 local Timer = require("jive.ui.Timer")
 local decode = require("squeezeplay.decode")
@@ -18,6 +19,7 @@ local reconnectDelays = { 2000, 5000, 10000, 30000 }
 local WATCHDOG_INTERVAL = 30000
 local WATCHDOG_STALL_POLLS = 2
 local AUDIO_RECOVERY_INTERVAL = 1000
+local POWER_KEEPALIVE_INTERVAL = 5 * 60 * 1000
 local DECODE_UNDERRUN = (1 << 1)
 
 
@@ -49,6 +51,7 @@ function new(options)
 	})
 	player:_startWatchdog()
 	player:_startAudioRecovery()
+	player:_startPowerKeepalive()
 	return player
 end
 
@@ -72,6 +75,29 @@ end
 
 function StreamPlayer:_resetAudioRecovery()
 	self.audioUnderrunRecovered = false
+end
+
+
+function StreamPlayer:_startPowerKeepalive()
+	if self.powerKeepaliveTimer then
+		return
+	end
+
+	self.powerKeepaliveTimer = Timer(POWER_KEEPALIVE_INTERVAL, function()
+		self:_powerKeepaliveTick()
+	end)
+	self.powerKeepaliveTimer:start()
+end
+
+
+function StreamPlayer:_powerKeepaliveTick()
+	if not self.playbackActive or self.intentionalStop then
+		return
+	end
+
+	-- Standalone playback bypasses normal player-mode updates. Keep the native
+	-- Radio power manager awake so it does not switch the speaker endpoint off.
+	Framework.wakeup()
 end
 
 
@@ -112,22 +138,25 @@ function StreamPlayer:_audioRecoveryTick()
 		return
 	end
 
-	if status.audioState & DECODE_UNDERRUN == 0 then
+	local playback = self.hookedPlayback
+	local audioUnderrun = status.audioState & DECODE_UNDERRUN ~= 0
+	local outputUnderrun = playback and playback.sentOutputUnderrunEvent
+	if not audioUnderrun and not outputUnderrun then
 		self:_resetAudioRecovery()
-		return
+	else
+		local threshold = tonumber(playback and playback.decodeThreshold) or 2048
+		local buffered = tonumber(status.decodeFull) or 0
+		if not self.audioUnderrunRecovered and buffered > threshold then
+			-- Playback pauses audio after an output underrun and expects LMS to send strm-u.
+			-- Its status bit can clear before this timer sees it, but the playback marker
+			-- remains set until the native loop observes healthy audio again.
+			-- In standalone mode, resume locally once enough stream data has accumulated.
+			decode:resumeAudio()
+			self.audioUnderrunRecovered = true
+			self.log:warn("StandaloneRadio: resumed audio after output underrun")
+		end
 	end
 
-	local threshold = tonumber(self.hookedPlayback and self.hookedPlayback.decodeThreshold) or 2048
-	local buffered = tonumber(status.decodeFull) or 0
-	if self.audioUnderrunRecovered or buffered <= threshold then
-		return
-	end
-
-	-- Playback pauses audio after an output underrun and expects LMS to send strm-u.
-	-- In standalone mode, resume it locally once enough stream data has accumulated.
-	decode:resumeAudio()
-	self.audioUnderrunRecovered = true
-	self.log:warn("StandaloneRadio: resumed audio after output underrun")
 end
 
 
@@ -286,6 +315,7 @@ function StreamPlayer:_installHooks(playback)
 
 		if self.desiredStation and not self.intentionalStop then
 			self.playbackActive = true
+			self:_powerKeepaliveTick()
 			self.retryIndex = 1
 			self:_notifyState(self.desiredStation, "PLAYING", false)
 			self.callbacks.onConnected(self.desiredStation)
@@ -437,18 +467,8 @@ function StreamPlayer:play()
 end
 
 
-function StreamPlayer:getLastStation()
-	return self.lastStation
-end
-
-
 function StreamPlayer:getCurrentStation()
 	return self.desiredStation or self.lastStation
-end
-
-
-function StreamPlayer:getState()
-	return self.state
 end
 
 

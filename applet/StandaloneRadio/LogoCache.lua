@@ -1,4 +1,4 @@
-local os, setmetatable, tonumber, tostring, type = os, setmetatable, tonumber, tostring, type
+local io, os, setmetatable, tonumber, tostring, type = io, os, setmetatable, tonumber, tostring, type
 
 local lfs = require("lfs")
 local string = require("string")
@@ -91,11 +91,6 @@ function new(options)
 		log = options.log,
 		active = {},
 	}, LogoCache)
-end
-
-
-function LogoCache:cacheDir()
-	return CACHE_DIR
 end
 
 

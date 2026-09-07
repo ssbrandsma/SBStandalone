@@ -1,5 +1,7 @@
 local os, pcall, setmetatable, tostring = os, pcall, setmetatable, tostring
 
+local math = require("math")
+
 local Framework = require("jive.ui.Framework")
 local Group = require("jive.ui.Group")
 local Icon = require("jive.ui.Icon")
@@ -17,6 +19,7 @@ module(...)
 local NowPlaying = {}
 NowPlaying.__index = NowPlaying
 local GENERIC_LOGO = "images/radio.png"
+local TRACK_ARTWORK_SIZE = 143
 
 
 function new(applet, log, callbacks)
@@ -37,6 +40,8 @@ function NowPlaying:_ensureWindow()
 	local window = Window("linein")
 	self.stationLabel = Label("text", "")
 	self.statusLabel = Label("nptrack", "")
+	-- icon_linein reserves the artwork area in the stock line-in window.
+	-- setValue below replaces its 3.5 mm jack surface with our station/track art.
 	self.artwork = Icon("icon_linein")
 
 	window:addWidget(Group("title", {
@@ -83,6 +88,10 @@ end
 
 
 function NowPlaying:_setLogo(station)
+	if self.trackArtworkKey then
+		return
+	end
+
 	local imagePath, cacheKey = logoSource(station)
 	local logoId = tostring(station.id) .. ":" .. tostring(cacheKey)
 	if self.logoId == logoId then
@@ -119,7 +128,63 @@ function NowPlaying:_setLogo(station)
 	end
 
 	self.artwork:setValue(surface)
+	self.artwork:reLayout()
+	self.artwork:reDraw()
 	self.log:info("StandaloneRadio: logo=", imagePath)
+end
+
+
+function NowPlaying:clearTrackArtwork(station)
+	self.trackArtworkKey = nil
+	self.trackArtworkSurface = nil
+	self.logoId = nil
+	if station and self.currentStationId == station.id then
+		self:_setLogo(station)
+	end
+end
+
+
+function NowPlaying:beginTrackArtwork(station, key)
+	self:clearTrackArtwork(station)
+	if not station or self.currentStationId ~= station.id then
+		return false
+	end
+	self.trackArtworkKey = key
+	return true
+end
+
+
+function NowPlaying:setTrackArtwork(station, key, imagePath)
+	if not station or self.currentStationId ~= station.id or self.trackArtworkKey ~= key then
+		return false
+	end
+
+	local ok, surface = pcall(function()
+		return Surface:loadImage(imagePath)
+	end)
+	if not ok or not surface then
+		self.log:warn("StandaloneRadio: unable to load track artwork ", imagePath)
+		return false
+	end
+	local width, height = surface:getSize()
+	local scale = math.min(TRACK_ARTWORK_SIZE / width, TRACK_ARTWORK_SIZE / height)
+	if scale < 1 then
+		local scaled = surface:zoom(scale, scale, 1)
+		surface:release()
+		if not scaled then
+			self.log:warn("StandaloneRadio: unable to resize track artwork")
+			return false
+		end
+		surface = scaled
+	end
+
+	self.trackArtworkSurface = surface
+	self.artwork:setValue(surface)
+	-- Icon:setValue does not invalidate an already visible stock skin widget.
+	self.artwork:reLayout()
+	self.artwork:reDraw()
+	self.log:info("StandaloneRadio: track artwork loaded")
+	return true
 end
 
 
@@ -143,6 +208,11 @@ end
 function NowPlaying:update(station, state, show)
 	self:_ensureWindow()
 	if station then
+		if self.currentStationId ~= station.id then
+			self.trackArtworkKey = nil
+			self.trackArtworkSurface = nil
+			self.logoId = nil
+		end
 		self.currentStationId = station.id
 		self:_setLabel(self.stationLabel, "stationText", Stations.displayName(station, self.applet))
 		self:_setLogo(station)

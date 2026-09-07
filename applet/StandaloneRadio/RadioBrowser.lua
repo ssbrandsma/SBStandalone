@@ -1,7 +1,8 @@
-local ipairs, os, pcall, setmetatable, tonumber, tostring, type = ipairs, os, pcall, setmetatable, tonumber, tostring, type
+local io, ipairs, os, pcall, setmetatable, tonumber, tostring, type = io, ipairs, os, pcall, setmetatable, tonumber, tostring, type
 
 local lfs = require("lfs")
 local string = require("string")
+local table = require("table")
 local RequestHttp = require("jive.net.RequestHttp")
 local Resolver = require("applets.StandaloneRadio.Resolver")
 local SocketHttp = require("jive.net.SocketHttp")
@@ -18,7 +19,7 @@ RadioBrowser.__index = RadioBrowser
 
 local API_HOST = "all.api.radio-browser.info"
 local API_PORT = 80
-local USER_AGENT = "StandaloneRadio/0.5"
+local USER_AGENT = "StandaloneRadio/0.6.0"
 local CACHE_DIR = "/etc/squeezeplay/userpath/StandaloneRadio/cache/stations"
 
 local PAGE_SIZE = 250
@@ -140,7 +141,9 @@ function RadioBrowser:refresh(code, callback, progress)
 		self.refreshes[code] = nil
 		if err then self.log:warn("StandaloneRadio: refresh country=", code, " failed: ", tostring(err)); callback(nil, err); return end
 		table.sort(stations, sortByName)
-		self:_saveCache(code, stations)
+		-- Cache failures must not hide a successfully downloaded directory.
+		local saved, cacheErr = pcall(function() return self:_saveCache(code, stations) end)
+		if not saved then self.log:warn("StandaloneRadio: cache save failed country=", code, ": ", tostring(cacheErr)) end
 		self.log:info("StandaloneRadio: refresh complete country=", code, " stations=", tostring(#stations))
 		callback(stations)
 	end

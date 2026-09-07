@@ -54,10 +54,10 @@ $requiredRootFiles = @(
 	"StandaloneRadioMeta.lua",
 	"Stations.lua",
 	"StreamPlayer.lua",
+	"TrackArtwork.lua",
 	"strings.txt"
 )
 $requiredImageFiles = @(
-	"icon_internet_radio.png",
 	"radio.png"
 )
 
