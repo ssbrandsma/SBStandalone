@@ -53,6 +53,14 @@ local function isHttpUrl(url)
 end
 
 
+local function forceHttp(url)
+	if string.match(url, "^[Hh][Tt][Tt][Pp][Ss]://") then
+		return "http://" .. string.sub(url, 9)
+	end
+	return url
+end
+
+
 local function firstBytes(path, count)
 	local file = io.open(path, "rb")
 	if not file then
@@ -171,19 +179,15 @@ function LogoCache:ensure(station, callback)
 		return
 	end
 
-	local favicon = trim(station.favicon or station.remoteLogo)
+	local favicon = forceHttp(trim(station.favicon or station.remoteLogo))
 	station.favicon = favicon
+	station.remoteLogo = favicon
 	if favicon == "" then
 		callback(nil)
 		return
 	end
 
 	self.log:info("StandaloneRadio: favicon for ", tostring(station.name or station.id), " = ", favicon)
-	if string.match(string.lower(favicon), "^https://") then
-		self.log:warn("StandaloneRadio: favicon download failed; HTTPS not supported by stock wget")
-		callback(nil)
-		return
-	end
 	if not isHttpUrl(favicon) then
 		self.log:warn("StandaloneRadio: favicon download failed; invalid URL")
 		callback(nil)
@@ -203,7 +207,7 @@ function LogoCache:ensure(station, callback)
 	local tempPath = CACHE_DIR .. "/" .. uuid .. ".tmp"
 	os.remove(tempPath)
 	self.log:info("StandaloneRadio: downloading logo ", uuid)
-	local command = "wget -q -T 20 -U StandaloneRadio/0.2 -O - " .. shellQuote(favicon) ..
+	local command = "wget -q -T 20 --header=" .. shellQuote("Connection: close") .. " -U StandaloneRadio/0.2 -O - " .. shellQuote(favicon) ..
 		" 2>/dev/null | dd of=" .. shellQuote(tempPath) .. " bs=1024 count=513 2>/dev/null"
 	local output = ""
 	Process(jnt, command):read(function(chunk, err)
