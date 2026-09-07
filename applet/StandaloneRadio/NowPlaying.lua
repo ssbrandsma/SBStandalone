@@ -1,5 +1,6 @@
 local os, pcall, setmetatable, tostring = os, pcall, setmetatable, tostring
 
+local io = require("io")
 local math = require("math")
 
 local Framework = require("jive.ui.Framework")
@@ -20,6 +21,23 @@ local NowPlaying = {}
 NowPlaying.__index = NowPlaying
 local GENERIC_LOGO = "images/radio.png"
 local TRACK_ARTWORK_SIZE = 143
+
+
+local function loadTrackArtwork(path)
+	local file = io.open(path, "rb")
+	if not file then
+		return nil
+	end
+
+	local data = file:read("*a")
+	file:close()
+	if not data or data == "" then
+		return nil
+	end
+	-- Decode the bytes now. Surface:loadImage creates a lazy tile that would
+	-- try to reopen the transient file during a later screen redraw.
+	return Surface:loadImageData(data, #data)
+end
 
 
 function new(applet, log, callbacks)
@@ -159,9 +177,7 @@ function NowPlaying:setTrackArtwork(station, key, imagePath)
 		return false
 	end
 
-	local ok, surface = pcall(function()
-		return Surface:loadImage(imagePath)
-	end)
+	local ok, surface = pcall(loadTrackArtwork, imagePath)
 	if not ok or not surface then
 		self.log:warn("StandaloneRadio: unable to load track artwork ", imagePath)
 		return false
