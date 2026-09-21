@@ -60,6 +60,7 @@ function _ensureComponents(self)
 	self.logoCache = LogoCache.new({
 		applet = self,
 		log = log,
+		baseUrl = settings.artworkBaseUrl,
 	})
 	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1)
 	self.nowPlaying = NowPlaying.new(self, log, {
@@ -72,6 +73,7 @@ function _ensureComponents(self)
 	self.trackArtwork = TrackArtwork.new({
 		log = log,
 		nowPlaying = self.nowPlaying,
+		baseUrl = settings.artworkBaseUrl,
 	})
 	self.streamPlayer = StreamPlayer.new({
 		log = log,
@@ -85,9 +87,10 @@ function _ensureComponents(self)
 				self.nowPlaying:setMetadata(title)
 				self.trackArtwork:lookup(self.streamPlayer:getCurrentStation(), title)
 			end,
-			onSelected = function(station)
-				self.lastStation = station
-				self.trackArtwork:reset(station)
+				onSelected = function(station)
+					self.lastStation = station
+					self.nowPlaying:selectStation(station)
+					self.trackArtwork:reset(station)
 				settings.lastStationId = station.id
 				if station.preset then
 					settings.lastPreset = station.preset

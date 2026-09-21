@@ -49,16 +49,9 @@ end
 
 
 local function isHttpUrl(url)
-	return string.match(url, "^http://[%w%.%-]+[:%d]*/?.*") ~= nil
+	return string.match(url, "^https?://[%w%.%-]+[:%d]*/?.*") ~= nil
 end
 
-
-local function forceHttp(url)
-	if string.match(url, "^[Hh][Tt][Tt][Pp][Ss]://") then
-		return "http://" .. string.sub(url, 9)
-	end
-	return url
-end
 
 
 local function firstBytes(path, count)
@@ -98,6 +91,7 @@ function new(options)
 		applet = options.applet,
 		log = options.log,
 		active = {},
+		baseUrl = options.baseUrl or "http://49.12.198.91:9000/artwork",
 	}, LogoCache)
 end
 
@@ -179,7 +173,7 @@ function LogoCache:ensure(station, callback)
 		return
 	end
 
-	local favicon = forceHttp(trim(station.favicon or station.remoteLogo))
+	local favicon = trim(station.favicon or station.remoteLogo)
 	station.favicon = favicon
 	station.remoteLogo = favicon
 	if favicon == "" then
@@ -207,6 +201,19 @@ function LogoCache:ensure(station, callback)
 	local tempPath = CACHE_DIR .. "/" .. uuid .. ".tmp"
 	os.remove(tempPath)
 	self.log:info("StandaloneRadio: downloading logo ", uuid)
+	if string.match(string.lower(favicon), "^https://") then
+		local url = self.baseUrl .. "?type=station&stationuuid=" .. uuid
+		self.log:info("StandaloneRadio: logo route=bootstrap-bridge url=", url)
+		local command = "wget -q -T 20 -O - " .. shellQuote(url) .. " 2>/dev/null | dd of=" .. shellQuote(tempPath) .. " bs=1024 count=513 2>/dev/null"
+		Process(jnt, command):read(function(chunk, err)
+			if chunk then return end
+			self.active[uuid] = nil
+			if err then os.remove(tempPath); callback(nil); return end
+			self:_finishDownload(station, tempPath, callback)
+		end)
+		return
+	end
+	self.log:info("StandaloneRadio: logo route=direct-http url=", favicon)
 	local command = "wget -q -T 20 --header=" .. shellQuote("Connection: close") .. " -U StandaloneRadio/0.2 -O - " .. shellQuote(favicon) ..
 		" 2>/dev/null | dd of=" .. shellQuote(tempPath) .. " bs=1024 count=513 2>/dev/null"
 	local output = ""
@@ -217,6 +224,7 @@ function LogoCache:ensure(station, callback)
 		end
 
 		self.active[uuid] = nil
+		self.log:info("StandaloneRadio: logo direct-http completed uuid=", uuid, " error=", tostring(err))
 		if err then
 			os.remove(tempPath)
 			self.log:warn("StandaloneRadio: favicon download failed ", tostring(err))

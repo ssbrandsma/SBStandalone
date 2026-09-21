@@ -46,6 +46,7 @@ function new(applet, log, callbacks)
 		log = log,
 		callbacks = callbacks or {},
 		logoCache = {},
+		backgroundCache = {},
 	}, NowPlaying)
 end
 
@@ -59,8 +60,11 @@ function NowPlaying:_ensureWindow()
 	self.stationLabel = Label("text", "")
 	self.statusLabel = Label("nptrack", "")
 	-- icon_linein reserves the artwork area in the stock line-in window.
-	-- setValue below replaces its 3.5 mm jack surface with our station/track art.
+	-- setValue below replaces its 3.5 mm jack surface with track art.
 	self.artwork = Icon("icon_linein")
+	-- Keep the stock artwork area, but make it transparent until track artwork
+	-- is available. The station logo remains visible in the background.
+	self.emptyArtwork = Surface:newRGBA(TRACK_ARTWORK_SIZE, TRACK_ARTWORK_SIZE)
 
 	window:addWidget(Group("title", {
 		lbutton = window:createDefaultLeftButton(),
@@ -82,6 +86,19 @@ function NowPlaying:_ensureWindow()
 	end)
 
 	self.window = window
+end
+
+
+local function fullscreenSurface(surface)
+	local width, height = surface:getSize()
+	local screenWidth, screenHeight = Framework:getScreenSize()
+	if not width or not height or width <= 0 or height <= 0 then
+		return nil
+	end
+	-- Cover the display while preserving the logo's aspect ratio. A square logo
+	-- should fill the shorter screen dimension instead of remaining letterboxed.
+	local scale = math.max(screenWidth / width, screenHeight / height)
+	return surface:zoom(scale, scale, 1)
 end
 
 
@@ -145,10 +162,71 @@ function NowPlaying:_setLogo(station)
 		self.logoCache[cacheKey] = surface
 	end
 
-	self.artwork:setValue(surface)
+	-- Framework's background is drawn below the now-playing window. Keep the
+	-- active background surface alive for the lifetime of this UI object: the
+	-- Radio can otherwise freeze if a surface still owned by the renderer is
+	-- released while changing stations.
+	local background = self.backgroundCache[cacheKey]
+	if not background then
+		background = fullscreenSurface(surface)
+		if background then
+			self.backgroundCache[cacheKey] = background
+		end
+	end
+	if background then
+		Framework:setBackground(background)
+	end
+
+	self.artwork:setValue(self.emptyArtwork)
 	self.artwork:reLayout()
 	self.artwork:reDraw()
 	self.log:info("StandaloneRadio: logo=", imagePath)
+end
+
+
+function NowPlaying:_setDefaultBackground()
+	local surface = self.logoCache[GENERIC_LOGO]
+	if not surface then
+		local ok, loaded = pcall(function()
+			return Surface:loadImage("applets/StandaloneRadio/" .. GENERIC_LOGO)
+		end)
+		if not ok or not loaded then
+			ok, loaded = pcall(function()
+				return Surface:loadImage("applets/StandaloneRadio/images\\radio.png")
+			end)
+		end
+		if not ok or not loaded then
+			self.log:warn("StandaloneRadio: unable to load default background logo")
+			return
+		end
+		surface = loaded
+		self.logoCache[GENERIC_LOGO] = surface
+	end
+
+	local background = self.backgroundCache[GENERIC_LOGO]
+	if not background then
+		background = fullscreenSurface(surface)
+		if background then
+			self.backgroundCache[GENERIC_LOGO] = background
+		end
+	end
+	if background then
+		Framework:setBackground(background)
+	end
+	self.log:info("StandaloneRadio: default background logo shown")
+end
+
+
+function NowPlaying:selectStation(station)
+	if not station then
+		return
+	end
+	self:_ensureWindow()
+	self.trackArtworkKey = nil
+	self.trackArtworkSurface = nil
+	self.logoId = nil
+	self:_setDefaultBackground()
+	self.log:info("StandaloneRadio: station selected; previous background cleared station=", tostring(station.id))
 end
 
 
@@ -228,6 +306,7 @@ function NowPlaying:update(station, state, show)
 			self.trackArtworkKey = nil
 			self.trackArtworkSurface = nil
 			self.logoId = nil
+			self:_setDefaultBackground()
 		end
 		self.currentStationId = station.id
 		self:_setLabel(self.stationLabel, "stationText", Stations.displayName(station, self.applet))

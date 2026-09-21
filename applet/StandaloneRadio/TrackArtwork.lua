@@ -46,10 +46,7 @@ end
 
 local function httpPictureUrl(value)
 	local url = trim(value)
-	if string.match(url, "^https://") then
-		url = "http://" .. string.sub(url, 9)
-	end
-	if not string.match(url, "^http://[%w%.%-]+[:%d]*/?.*") then
+	if not string.match(url, "^https?://[%w%.%-]+[:%d]*/?.*") then
 		return nil
 	end
 	return url
@@ -66,6 +63,7 @@ function new(options)
 		log = options.log,
 		nowPlaying = options.nowPlaying,
 		resolver = Resolver.new({ log = options.log }),
+		baseUrl = options.baseUrl or "http://49.12.198.91:9000/artwork",
 		generation = 0,
 	}, TrackArtwork)
 end
@@ -155,6 +153,13 @@ function TrackArtwork:lookup(station, streamTitle)
 			end
 
 			self.log:info("StandaloneRadio: track artwork API picture=", picture)
+			if string.match(string.lower(picture), "^https://") then
+				local bridge = self.baseUrl .. "?type=track&artist=" .. encodePathSegment(artist) .. "&title=" .. encodePathSegment(title)
+				self.log:info("StandaloneRadio: track artwork route=bootstrap-bridge url=", bridge)
+				self:_downloadPicture(station, key, generation, bridge)
+				return
+			end
+			self.log:info("StandaloneRadio: track artwork route=direct-http url=", picture)
 			self:_downloadPicture(station, key, generation, picture)
 		end, "GET", path, { headers = {
 			["Host"] = API_HOST,
@@ -162,13 +167,14 @@ function TrackArtwork:lookup(station, streamTitle)
 			["Connection"] = "close",
 		} })
 		self.http = SocketHttp(jnt, ip, API_PORT, "StandaloneRadioTrackArtwork")
-		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.7.2" } end
+		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.7.3" } end
 		self.http:fetch(request)
 	end)
 end
 
 
 function TrackArtwork:_downloadPicture(station, key, generation, picture)
+	self.log:info("StandaloneRadio: artwork download start url=", picture)
 	local tempPath = "/tmp/standalone-radio-track-" .. tostring(generation) .. ".img"
 	self.tempPath = tempPath
 	os.remove(tempPath)
@@ -185,6 +191,8 @@ function TrackArtwork:_downloadPicture(station, key, generation, picture)
 		end
 		if err or not self.nowPlaying:setTrackArtwork(station, key, tempPath) then
 			self.log:warn("StandaloneRadio: track artwork image failed ", tostring(err))
+		else
+			self.log:info("StandaloneRadio: artwork download complete url=", picture)
 		end
 		os.remove(tempPath)
 		if self.tempPath == tempPath then
