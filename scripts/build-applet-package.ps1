@@ -78,6 +78,7 @@ $stageDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("SBStandalone-" +
 $zipName = "StandaloneRadio-$version.zip"
 $zipPath = Join-Path $OutputDirectory $zipName
 $repositoryPath = Join-Path $OutputDirectory "extensions.xml"
+$repositoryShaPath = Join-Path $OutputDirectory "extensions.xml.sha1"
 
 try {
 	New-Item -ItemType Directory -Force -Path $stageDirectory | Out-Null
@@ -152,8 +153,11 @@ try {
   </applets>
 </extensions>
 "@
+	$xml = $xml.Replace("Applet Installer package release $version.", "Add scalable Radio Browser catalogs, expanded codecs, Force HTTP, and HTTPS artwork support.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
+	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()
+	[System.IO.File]::WriteAllText($repositoryShaPath, "$repositorySha1`n", $utf8NoBom)
 
 	[xml]$parsedXml = Get-Content -LiteralPath $repositoryPath -Raw
 	$applets = @($parsedXml.extensions.applets.applet)
@@ -178,6 +182,7 @@ Write-Host "Version:       $version"
 Write-Host "ZIP:           $zipPath"
 Write-Host "SHA-1:         $sha1"
 Write-Host "Repository XML:$repositoryPath"
+Write-Host "Repository SHA-1:$repositorySha1"
 Write-Host "ZIP URL:       $zipUrl"
 Write-Host "Repository URL:$BaseUrl/extensions.xml"
 Write-Host "Archive entries:"

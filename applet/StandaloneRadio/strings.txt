@@ -38,6 +38,18 @@ STANDALONE_RADIO_REFRESH
 	EN	Refresh stations
 	NL	Zenders vernieuwen
 
+STANDALONE_RADIO_FORCE_HTTP
+	EN	Try http on https
+	NL	Probeer http bij https
+
+STANDALONE_RADIO_PREVIOUS_PAGE
+	EN	Previous page
+	NL	Vorige pagina
+
+STANDALONE_RADIO_NEXT_PAGE
+	EN	Next page
+	NL	Volgende pagina
+
 STANDALONE_RADIO_LOADING_STATIONS
 	EN	Loading stations...
 	NL	Zenders laden...

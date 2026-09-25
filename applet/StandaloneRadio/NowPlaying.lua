@@ -313,7 +313,14 @@ function NowPlaying:update(station, state, show)
 		self:_setLogo(station)
 	end
 
-	self:_setLabel(self.statusLabel, "statusText", tostring(self.applet:string("STANDALONE_RADIO_STATE_" .. state)))
+	local statusText = tostring(self.applet:string("STANDALONE_RADIO_STATE_" .. state))
+	-- The Radio's now-playing skin hides the regular title widget. Once audio is
+	-- playing, keep the station name in the visible track-title slot until ICY
+	-- metadata supplies an actual track title.
+	if state == "PLAYING" and station then
+		statusText = Stations.displayName(station, self.applet)
+	end
+	self:_setLabel(self.statusLabel, "statusText", statusText)
 	if show then
 		if Framework:isWindowInStack(self.window) then
 			self.window:moveToTop()

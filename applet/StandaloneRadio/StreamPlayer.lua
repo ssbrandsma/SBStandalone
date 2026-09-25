@@ -26,6 +26,36 @@ local AUDIO_RECOVERY_INTERVAL = 1000
 local POWER_KEEPALIVE_INTERVAL = 5 * 60 * 1000
 local DECODE_UNDERRUN = (1 << 1)
 
+local CODEC_DECODERS = {
+	-- For AAC mode, SqueezePlay overloads the first PCM parameter with the
+	-- transport type. Radio Browser's raw AAC streams use ADTS (type 2).
+	["aac"] = { mode = "a", accept = "audio/aac,audio/aacp,*/*", sampleSize = "2" },
+	["aac+"] = { mode = "a", accept = "audio/aacp,audio/aac,*/*", sampleSize = "2" },
+	["ogg"] = { mode = "o", accept = "audio/ogg,application/ogg,*/*" },
+	["flac"] = { mode = "f", accept = "audio/flac,audio/x-flac,*/*" },
+	["flc"] = { mode = "f", accept = "audio/flac,audio/x-flac,*/*" },
+	["aif"] = { mode = "p", accept = "audio/aiff,audio/x-aiff,*/*", sampleSize = "1", sampleRate = "3", channels = "2", endianness = "0" },
+	["aiff"] = { mode = "p", accept = "audio/aiff,audio/x-aiff,*/*", sampleSize = "1", sampleRate = "3", channels = "2", endianness = "0" },
+	["pcm"] = { mode = "p", accept = "audio/L16,audio/L24,audio/wav,*/*", sampleSize = "1", sampleRate = "3", channels = "2", endianness = "1" },
+	["mp3"] = { mode = "m", accept = "audio/mpeg,*/*" },
+}
+
+
+local function decoderFor(station)
+	local codec = string.lower(tostring(station and station.codec or "mp3"))
+	codec = string.gsub(codec, "^%s*(.-)%s*$", "%1")
+	return CODEC_DECODERS[codec] or CODEC_DECODERS["mp3"]
+end
+
+
+local function forceHttpUrl(url)
+	url = tostring(url or "")
+	if string.lower(string.sub(url, 1, 8)) == "https://" then
+		return "http://" .. string.sub(url, 9)
+	end
+	return url
+end
+
 
 local function localPlayback()
 	local player = Player:getLocalPlayer() or Player:getCurrentPlayer()
@@ -49,6 +79,8 @@ function new(options)
 		state = "STOPPED",
 		watchdogStalls = 0,
 		audioUnderrunRecovered = false,
+		ownsPlayback = false,
+		forceHttp = options.forceHttp == true,
 	}, StreamPlayer)
 	player.resolver = Resolver.new({
 		log = options.log,
@@ -82,7 +114,13 @@ function StreamPlayer:_resetAudioRecovery()
 end
 
 
-local function redirectedStation(station, location)
+function StreamPlayer:setForceHttp(forceHttp)
+	self.forceHttp = forceHttp == true
+end
+
+
+local function redirectedStation(station, location, forceHttp)
+	if forceHttp then location = forceHttpUrl(location) end
 	local host, port, path = string.match(location, "^http://([^:/]+):?(%d*)(/.*)$")
 	if not host then
 		return nil
@@ -384,7 +422,7 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 						self:_finishRedirectProbe(token, station, callback)
 						return
 					end
-					local redirected = redirectedStation(station, location)
+					local redirected = redirectedStation(station, location, self.forceHttp)
 					if not redirected then
 						self.log:warn("StandaloneRadio: redirect probe ignored non-HTTP Location")
 						self:_finishRedirectProbe(token, station, callback)
@@ -448,7 +486,7 @@ function StreamPlayer:_installHooks(playback)
 				self.log:warn("StandaloneRadio: too many stream redirects")
 				return
 			end
-			local redirected = redirectedStation(self.desiredStation, location)
+			local redirected = redirectedStation(self.desiredStation, location, self.forceHttp)
 			if not redirected then
 				self.log:warn("StandaloneRadio: ignoring non-HTTP stream redirect")
 				return
@@ -482,6 +520,12 @@ function StreamPlayer:_installHooks(playback)
 		if type(packet) == "table" and packet.opcode == "META" then
 			self:_handleMetadata(packet.data)
 		end
+		-- Standalone playback has no LMS command loop to consume status events.
+		-- Forwarding them to a stale server blocks SqueezePlay's shared network
+		-- thread and can starve the radio stream until the output is paused.
+		if self.ownsPlayback then
+			return true
+		end
 		return originalSend(proto, packet, force)
 	end
 
@@ -498,6 +542,14 @@ end
 
 function StreamPlayer:_begin(station, reconnect)
 	self:_cancelReconnect()
+	if self.forceHttp and string.lower(string.sub(tostring(station and station.url or ""), 1, 8)) == "https://" then
+		station = redirectedStation(station, station.url, true)
+		if not station then
+			self.log:warn("StandaloneRadio: could not force stream URL to HTTP")
+			return false
+		end
+	end
+	self.ownsPlayback = true
 	self.generation = self.generation + 1
 	local generation = self.generation
 	self.desiredStation = station
@@ -516,12 +568,18 @@ function StreamPlayer:_begin(station, reconnect)
 
 	local playback, player, err = localPlayback()
 	if not playback then
+		self.ownsPlayback = false
 		self.pendingStation = nil
 		self:_notifyState(station, "FAILED", true)
 		self.log:warn("StandaloneRadio: ", err)
 		return false
 	end
 	self:_installHooks(playback)
+	-- Drop queued writes to a previous LMS/bootstrap connection before the
+	-- standalone stream starts using the same network event loop.
+	if playback.slimproto then
+		playback.slimproto:disconnect()
+	end
 	self:_notifyState(station, "RESOLVING", true)
 
 	self:_resolveStreamRedirect(station, generation, function(playStation)
@@ -552,13 +610,14 @@ function StreamPlayer:_begin(station, reconnect)
 			self.intentionalStop = false
 			player:incrementSequenceNumber()
 
+			local decoder = decoderFor(playStation)
 			playback.flags = 0
-			playback.mode = 'm'
+			playback.mode = decoder.mode
 			playback.header = "GET " .. playStation.path .. " HTTP/1.0\n" ..
 				"Host: " .. playStation.host .. "\n" ..
 				"User-Agent: SqueezePlay StandaloneRadio\n" ..
 				"Icy-MetaData: 1\n" ..
-				"Accept: audio/mpeg,*/*\n" ..
+				"Accept: " .. decoder.accept .. "\n" ..
 				"Cache-Control: no-cache\n\n"
 			playback.autostart = '1'
 			playback.threshold = 0
@@ -572,9 +631,15 @@ function StreamPlayer:_begin(station, reconnect)
 			playback.decodeThreshold = 2048
 			Stream:icyMetaInterval(0)
 
-			decode:start(string.byte('m'), 0, 0, 0, 0, 0, 0, 0, 0, 0)
+			decode:start(
+				string.byte(decoder.mode), 0, 0, 0, 0, 0, 0,
+				string.byte(decoder.sampleSize or "0"),
+				string.byte(decoder.sampleRate or "0"),
+				string.byte(decoder.channels or "0"),
+				string.byte(decoder.endianness or "0")
+			)
 			self.pendingStation = nil
-			self.log:info("StandaloneRadio: decoder started")
+			self.log:info("StandaloneRadio: decoder started codec=", tostring(playStation.codec), " mode=", decoder.mode)
 			playback:_streamConnect(ip, playStation.port)
 		end)
 		end):addTask()
@@ -590,6 +655,7 @@ end
 
 function StreamPlayer:stop()
 	self.generation = self.generation + 1
+	self.ownsPlayback = false
 	self:_cancelReconnect()
 	self.pendingStation = nil
 	self.currentMetadata = nil
