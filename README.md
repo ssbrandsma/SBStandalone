@@ -109,9 +109,11 @@ Preset and transport handling is enabled when SqueezePlay starts, so assigned pr
 
 The `Radio Browser` menu has local `Search`, `Popular`, `All stations`, `Country`, and `Refresh stations` views. The default country is the Netherlands (`NL`), selected with an offline built-in ISO country list. The selected country code survives restart; an invalid saved value falls back to `NL`.
 
-For each selected country, StandaloneRadio downloads every matching Radio Browser station in deterministic pages (HTTP MP3, non-HTTPS, non-broken), up to a safety maximum of 5,000 stations. It keeps a separate cache for each country under `/etc/squeezeplay/userpath/StandaloneRadio/cache/stations/`. A fresh cache opens immediately without a request; a stale cache opens immediately and refreshes in the background. Cached countries remain browseable offline, and `Refresh stations` refreshes only the selected country.
+For each selected country, StandaloneRadio downloads non-broken Radio Browser stations in deterministic 250-entry pages and keeps AAC/AAC+, Ogg Vorbis, FLAC, AIFF/PCM, and MP3 streams supported by SqueezePlay. HTTPS streams are excluded by default. The `Try http on https` option removes that API filter and rewrites HTTPS stream URLs to HTTP before playback.
 
-Search is a local, case-insensitive substring search over the selected country's cached directory. `Popular` is also local, ranked by click count, votes, then station name and limited to its 100-item menu view. `All stations` contains the complete cached country directory in alphabetical order. Opening these views never downloads station artwork.
+Each country is cached as compact JSON Lines under `/etc/squeezeplay/userpath/StandaloneRadio/cache/stations/`. Refresh writes one station at a time to a temporary file and atomically replaces the previous cache only after every page succeeds. The applet never retains the complete country directory in memory. A fresh cache opens immediately without a request; a stale cache opens immediately and refreshes in the background. Cached countries remain browseable offline, and `Refresh stations` refreshes only the selected country.
+
+Search is a local, case-insensitive scan capped at 250 results. `Popular` is also local, ranked by click count, votes, then station name and limited to 100 entries. `All stations` reads 100 entries at a time with Previous/Next controls. Opening these views never downloads station artwork.
 
 Saved presets do not depend on the selected country or its cache: once a station is assigned, its name and stream URL are stored locally and can be played without contacting Radio Browser again.
 
@@ -179,7 +181,7 @@ Increase `VERSION`, rebuild, and publish a ZIP with the new version in its filen
 
 ## How It Works
 
-The applet obtains the existing local player through `Player:getLocalPlayer().playback`, resolves station hosts asynchronously through BusyBox `nslookup`, and starts the stock MP3 stream/decode path with `playback:_streamConnect()`. Stop and station switches use `playback:stopInternal()`.
+The applet obtains the existing local player through `Player:getLocalPlayer().playback`, resolves station hosts asynchronously through BusyBox `nslookup`, selects the stock decoder for the station codec, and starts streaming with `playback:_streamConnect()`. Stop and station switches use `playback:stopInternal()`.
 
 For ICY-capable streams, it asks for metadata, reads the server's `icy-metaint` response through the playback instance, and enables SqueezePlay's built-in native metadata filter. That filter keeps metadata bytes out of the MP3 decoder. The applet observes the resulting native `META` notifications to update the on-screen label. It does not implement its own socket reader or modify stock playback code.
 

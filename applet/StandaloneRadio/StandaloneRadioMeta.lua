@@ -17,13 +17,14 @@ end
 
 
 function defaultSettings(self)
-	return { artworkBaseUrl = "http://<VPS_HOST>:9000/artwork" }
+	return { artworkBaseUrl = "http://<VPS_HOST>:9000/artwork", forceHttp = false }
 end
 
 
 function upgradeSettings(self, settings)
 	settings = settings or {}
 	settings.artworkBaseUrl = settings.artworkBaseUrl or "http://<VPS_HOST>:9000/artwork"
+	if settings.forceHttp == nil then settings.forceHttp = false end
 	return settings
 end
 

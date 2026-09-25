@@ -5,6 +5,7 @@ local table = require("table")
 local string = require("string")
 
 local Applet = require("jive.Applet")
+local Checkbox = require("jive.ui.Checkbox")
 local Framework = require("jive.ui.Framework")
 local Group = require("jive.ui.Group")
 local Keyboard = require("jive.ui.Keyboard")
@@ -29,6 +30,8 @@ local log = require("jive.utils.log").logger("StandaloneRadio")
 local AUTOTEST_MARKER = "/tmp/standalone-radio-autotest"
 local DEFAULT_COUNTRY_CODE = "NL"
 local POPULAR_LIMIT = 100
+local ALL_STATIONS_PAGE_SIZE = 100
+local SEARCH_RESULT_LIMIT = 250
 
 module(..., Framework.constants)
 oo.class(_M, Applet)
@@ -56,6 +59,7 @@ function _ensureComponents(self)
 	})
 	self.radioBrowser = RadioBrowser.new({
 		log = log,
+		forceHttp = settings.forceHttp,
 	})
 	self.logoCache = LogoCache.new({
 		applet = self,
@@ -78,6 +82,7 @@ function _ensureComponents(self)
 	self.streamPlayer = StreamPlayer.new({
 		log = log,
 		lastStation = self.lastStation,
+		forceHttp = settings.forceHttp,
 		callbacks = {
 			onState = function(station, state, show)
 				self.nowPlaying:update(station, state, show)
@@ -226,27 +231,27 @@ function _selectedCountryCode(self)
 end
 
 
-function _setDirectory(self, code, stations)
+function _setDirectory(self, code, directory)
 	self.activeCountryCode = code
-	self.activeStations = stations
+	self.activeDirectory = directory
 	self:_renderRadioBrowserMenu()
 end
 
 
 function _refreshCountry(self, code, showProgress)
 	local identity = self.directoryIdentity
-	local started = self.radioBrowser:refresh(code, function(stations, err)
+	local started = self.radioBrowser:refresh(code, function(directory, err)
 		-- A completed background fetch may update its own cache, but never the
 		-- current country view after the user has switched away.
 		if code ~= self.activeCountryCode or identity ~= self.directoryIdentity then
 			return
 		end
-		if stations then
+		if directory then
 			self.directoryError = nil
 			self.directoryRefreshing = nil
 			self.directoryLoadingCount = nil
-			self:_setDirectory(code, stations)
-		elseif not self.activeStations or #self.activeStations == 0 then
+			self:_setDirectory(code, directory)
+		elseif not self.activeDirectory or self.activeDirectory.count == 0 then
 			self.directoryError = err
 			self.directoryRefreshing = nil
 			self.directoryLoadingCount = nil
@@ -276,9 +281,9 @@ function _activateCountry(self, code)
 	self.directoryError = nil
 	self.directoryRefreshing = nil
 	self.directoryLoadingCount = nil
-	local stations, stale = self.radioBrowser:loadCache(code)
-	self:_setDirectory(code, stations)
-	if stations then
+	local directory, stale = self.radioBrowser:loadCache(code)
+	self:_setDirectory(code, directory)
+	if directory then
 		if stale then
 			self:_refreshCountry(code, false)
 		end
@@ -318,36 +323,72 @@ end
 
 
 function _showAllStations(self)
-	self:_showStationList(self:string("STANDALONE_RADIO_ALL_STATIONS"), self.activeStations)
+	local directory = self.activeDirectory
+	if not directory then self:_showStationList(self:string("STANDALONE_RADIO_ALL_STATIONS"), {}); return end
+	local window = Window("text_list", self:string("STANDALONE_RADIO_ALL_STATIONS"))
+	local menu = SimpleMenu("menu")
+	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
+	window:addWidget(menu)
+	local showPage
+	showPage = function(offset)
+		local stations = self.radioBrowser:readPage(directory, offset, ALL_STATIONS_PAGE_SIZE) or {}
+		local items = self:_stationItems(stations)
+		if offset > 0 then
+			items[#items + 1] = {
+				text = self:string("STANDALONE_RADIO_PREVIOUS_PAGE"), sound = "SELECT", weight = ALL_STATIONS_PAGE_SIZE + 1,
+				callback = function() showPage(offset - ALL_STATIONS_PAGE_SIZE) end,
+			}
+		end
+		if offset + #stations < directory.count then
+			items[#items + 1] = {
+				text = self:string("STANDALONE_RADIO_NEXT_PAGE"), sound = "SELECT", weight = ALL_STATIONS_PAGE_SIZE + 2,
+				callback = function() showPage(offset + ALL_STATIONS_PAGE_SIZE) end,
+			}
+		end
+		menu:setItems(items)
+		menu:reLayout()
+	end
+	showPage(0)
+	self:tieAndShowWindow(window)
 end
 
 
 function _showPopular(self)
-	local ranked = {}
-	for _, station in ipairs(self.activeStations or {}) do ranked[#ranked + 1] = station end
-	table.sort(ranked, function(a, b)
-		if (a.clickcount or 0) ~= (b.clickcount or 0) then return (a.clickcount or 0) > (b.clickcount or 0) end
-		if (a.votes or 0) ~= (b.votes or 0) then return (a.votes or 0) > (b.votes or 0) end
-		local an, bn = string.lower(a.name or ""), string.lower(b.name or "")
-		return an == bn and (a.stationuuid or "") < (b.stationuuid or "") or an < bn
+	local window = Window("text_list", self:string("STANDALONE_RADIO_POPULAR"))
+	local menu = SimpleMenu("menu")
+	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
+	window:addWidget(menu)
+	menu:setItems({ { text = self:string("STANDALONE_RADIO_LOADING"), style = "item", weight = 0 } })
+	self:tieAndShowWindow(window)
+
+	self.popularIdentity = (self.popularIdentity or 0) + 1
+	local identity = self.popularIdentity
+	self.radioBrowser:popularAsync(self.activeDirectory, POPULAR_LIMIT, function(ranked, err)
+		if identity ~= self.popularIdentity then return end
+		if err then log:warn("StandaloneRadio: popular scan failed: ", tostring(err)) end
+		menu:setItems(self:_stationItems(ranked or {}))
+		menu:reLayout()
 	end)
-	while #ranked > POPULAR_LIMIT do table.remove(ranked) end
-	self:_showStationList(self:string("STANDALONE_RADIO_POPULAR"), ranked)
 end
 
 
 function _showSearchResults(self, query)
 	query = tostring(query or ""):gsub("^%s*(.-)%s*$", "%1")
-	local matches = {}
-	if query ~= "" then
-		local needle = string.lower(query)
-		for _, station in ipairs(self.activeStations or {}) do
-			if string.find(string.lower(station.name or ""), needle, 1, true) then
-				matches[#matches + 1] = station
-			end
-		end
-	end
-	self:_showStationList(self:string("STANDALONE_RADIO_SEARCH"), matches)
+	local window = Window("text_list", self:string("STANDALONE_RADIO_SEARCH"))
+	local menu = SimpleMenu("menu")
+	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
+	window:addWidget(menu)
+	menu:setItems({ { text = self:string("STANDALONE_RADIO_LOADING"), style = "item", weight = 0 } })
+	self:tieAndShowWindow(window)
+
+	self.searchIdentity = (self.searchIdentity or 0) + 1
+	local identity = self.searchIdentity
+	self.radioBrowser:searchAsync(self.activeDirectory, query, SEARCH_RESULT_LIMIT, function(matches, err)
+		if identity ~= self.searchIdentity then return end
+		if err then log:warn("StandaloneRadio: search failed: ", tostring(err)) end
+		menu:setItems(self:_stationItems(matches or {}))
+		menu:reLayout()
+	end)
 end
 
 
@@ -405,7 +446,18 @@ end
 function _renderRadioBrowserMenu(self)
 	if not self.browserMenuWidget then return end
 	local code = self.activeCountryCode or self:_selectedCountryCode()
-	local stationCount = self.activeStations and #self.activeStations or nil
+	if not self.forceHttpCheckbox then
+		self.forceHttpCheckbox = Checkbox("checkbox", function(_, enabled)
+			local settings = self:getSettings()
+			settings.forceHttp = enabled == true
+			self:storeSettings()
+			self.radioBrowser:setForceHttp(settings.forceHttp)
+			self.streamPlayer:setForceHttp(settings.forceHttp)
+			_logInfo("force HTTP ", settings.forceHttp and "enabled" or "disabled")
+			self:_activateCountry(self.activeCountryCode or self:_selectedCountryCode())
+		end, (self:getSettings().forceHttp == true))
+	end
+	local stationCount = self.activeDirectory and self.activeDirectory.count or nil
 	local popularCount = stationCount and (stationCount > POPULAR_LIMIT and POPULAR_LIMIT or stationCount) or nil
 	local popularLabel = tostring(self:string("STANDALONE_RADIO_POPULAR"))
 	local allStationsLabel = tostring(self:string("STANDALONE_RADIO_ALL_STATIONS"))
@@ -416,14 +468,19 @@ function _renderRadioBrowserMenu(self)
 		{ text = popularLabel, sound = "SELECT", weight = 2, callback = function() self:_showPopular() end },
 		{ text = allStationsLabel, sound = "SELECT", weight = 3, callback = function() self:_showAllStations() end },
 		{ text = tostring(self:string("STANDALONE_RADIO_COUNTRY")) .. ": " .. Countries.displayName(code), sound = "SELECT", weight = 4, callback = function() self:_showCountryMenu() end },
-		{ text = self:string("STANDALONE_RADIO_REFRESH"), sound = "SELECT", weight = 5, callback = function() self:_refreshCountry(code, true) end },
+		{
+			text = self:string("STANDALONE_RADIO_FORCE_HTTP"), sound = "SELECT", weight = 5,
+			style = "item_choice",
+			check = self.forceHttpCheckbox,
+		},
+		{ text = self:string("STANDALONE_RADIO_REFRESH"), sound = "SELECT", weight = 6, callback = function() self:_refreshCountry(code, true) end },
 	}
 	if self.directoryError then
-		items[#items + 1] = { text = self:string("STANDALONE_RADIO_BROWSER_FAILED"), style = "item", weight = 6 }
-	elseif not self.activeStations or self.directoryRefreshing then
+		items[#items + 1] = { text = self:string("STANDALONE_RADIO_BROWSER_FAILED"), style = "item", weight = 7 }
+	elseif not self.activeDirectory or self.directoryRefreshing then
 		local loading = tostring(self:string("STANDALONE_RADIO_LOADING_STATIONS"))
 		if self.directoryLoadingCount then loading = loading .. " " .. tostring(self.directoryLoadingCount) end
-		items[#items + 1] = { text = loading, style = "item", weight = 6 }
+		items[#items + 1] = { text = loading, style = "item", weight = 7 }
 	end
 	self.browserMenuWidget:setItems(items)
 	self.browserMenuWidget:reLayout()
@@ -437,7 +494,10 @@ function radioBrowserMenu(self)
 	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
 	window:addWidget(menu)
 	self.browserMenuWidget = menu
-	window:addListener(EVENT_WINDOW_POP, function() self.browserMenuWidget = nil end)
+	window:addListener(EVENT_WINDOW_POP, function()
+		self.browserMenuWidget = nil
+		self.forceHttpCheckbox = nil
+	end)
 	-- Populate the browser before showing its window. Stock Jive menus can
 	-- otherwise display an empty first frame while the directory activates.
 	self:_renderRadioBrowserMenu()
