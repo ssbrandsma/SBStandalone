@@ -204,9 +204,22 @@ function _refreshMenu(self)
 
 	local items = {
 		{
+			text = self:string("STANDALONE_RADIO_NOW_PLAYING"),
+			sound = "WINDOW_OPEN",
+			weight = 1,
+			callback = function()
+				local station = self.streamPlayer:getCurrentStation() or self.lastStation
+				if station then
+					self.nowPlaying:show(station)
+				else
+					self:_showPopup(self:string("STANDALONE_RADIO_NO_STATION_SELECTED"))
+				end
+			end,
+		},
+		{
 			text = self:string("STANDALONE_RADIO_BROWSER"),
 			sound = "SELECT",
-			weight = 1,
+			weight = 2,
 			callback = function()
 				self:radioBrowserMenu()
 			end,

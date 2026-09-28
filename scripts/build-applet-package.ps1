@@ -153,7 +153,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Add scalable Radio Browser catalogs, expanded codecs, Force HTTP, and HTTPS artwork support.")
+	$xml = $xml.Replace("Applet Installer package release $version.", "Fix Now Playing logo display and safely restore the Home background.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

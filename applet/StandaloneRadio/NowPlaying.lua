@@ -80,6 +80,7 @@ function NowPlaying:_ensureWindow()
 	}))
 	window:addListener(EVENT_WINDOW_POP, function()
 		self.visible = false
+		self:_restoreBackground()
 		if self.callbacks.onClose then
 			self.callbacks.onClose()
 		end
@@ -99,6 +100,39 @@ local function fullscreenSurface(surface)
 	-- should fill the shorter screen dimension instead of remaining letterboxed.
 	local scale = math.max(screenWidth / width, screenHeight / height)
 	return surface:zoom(scale, scale, 1)
+end
+
+
+function NowPlaying:_showBackground(background)
+	if not self.visible or not background then return end
+	if not self.backgroundCaptured then
+		local ok, baseBackground = pcall(function()
+			local current = Framework:getBackground()
+			local screenWidth, screenHeight = Framework:getScreenSize()
+			local copy = Surface:newRGB(screenWidth, screenHeight)
+			current:blit(copy, 0, 0, screenWidth, screenHeight)
+			return copy
+		end)
+		if not ok or not baseBackground then
+			self.log:error("StandaloneRadio: unable to capture framework background safely")
+			return
+		end
+		self.baseBackground = baseBackground
+		self.backgroundCaptured = true
+		self.log:info("StandaloneRadio: framework background captured")
+	end
+	Framework:setBackground(background)
+end
+
+
+function NowPlaying:_restoreBackground()
+	if self.backgroundCaptured then
+		self.log:info("StandaloneRadio: restoring framework background")
+		Framework:setBackground(self.baseBackground)
+		self.backgroundCaptured = false
+		self.baseBackground = nil
+		self.log:info("StandaloneRadio: framework background restored")
+	end
 end
 
 
@@ -123,10 +157,6 @@ end
 
 
 function NowPlaying:_setLogo(station)
-	if self.trackArtworkKey then
-		return
-	end
-
 	local imagePath, cacheKey = logoSource(station)
 	local logoId = tostring(station.id) .. ":" .. tostring(cacheKey)
 	if self.logoId == logoId then
@@ -174,12 +204,16 @@ function NowPlaying:_setLogo(station)
 		end
 	end
 	if background then
-		Framework:setBackground(background)
+		self:_showBackground(background)
 	end
 
-	self.artwork:setValue(self.emptyArtwork)
-	self.artwork:reLayout()
-	self.artwork:reDraw()
+	-- Track artwork occupies the foreground artwork widget, independently of
+	-- the station/default image used as the full-screen background.
+	if not self.trackArtworkKey then
+		self.artwork:setValue(self.emptyArtwork)
+		self.artwork:reLayout()
+		self.artwork:reDraw()
+	end
 	self.log:info("StandaloneRadio: logo=", imagePath)
 end
 
@@ -211,7 +245,7 @@ function NowPlaying:_setDefaultBackground()
 		end
 	end
 	if background then
-		Framework:setBackground(background)
+		self:_showBackground(background)
 	end
 	self.log:info("StandaloneRadio: default background logo shown")
 end
@@ -301,6 +335,7 @@ end
 
 function NowPlaying:update(station, state, show)
 	self:_ensureWindow()
+	if show then self.visible = true end
 	if station then
 		if self.currentStationId ~= station.id then
 			self.trackArtworkKey = nil
@@ -309,6 +344,7 @@ function NowPlaying:update(station, state, show)
 			self:_setDefaultBackground()
 		end
 		self.currentStationId = station.id
+		self.currentStation = station
 		self:_setLabel(self.stationLabel, "stationText", Stations.displayName(station, self.applet))
 		self:_setLogo(station)
 	end
@@ -327,7 +363,28 @@ function NowPlaying:update(station, state, show)
 		else
 			self.window:show()
 		end
-		self.visible = true
+	end
+end
+
+
+function NowPlaying:show(station)
+	self:_ensureWindow()
+	self.visible = true
+	if station then
+		local changed = self.currentStationId ~= station.id
+		self.currentStationId = station.id
+		self.currentStation = station
+		self:_setLabel(self.stationLabel, "stationText", Stations.displayName(station, self.applet))
+		if changed or not self.statusText or self.statusText == "" then
+			self:_setLabel(self.statusLabel, "statusText", Stations.displayName(station, self.applet))
+		end
+		self.logoId = nil
+		self:_setLogo(station)
+	end
+	if Framework:isWindowInStack(self.window) then
+		self.window:moveToTop()
+	else
+		self.window:show()
 	end
 end
 

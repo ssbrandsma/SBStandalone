@@ -70,6 +70,10 @@ Applet Installer on stock Radio firmware can remove an installed repository appl
 
 ### Build And Publish
 
+For the complete release and VPS publication procedure, including metadata
+updates, backups, container restart, verification, and rollback, see
+[`DEPLOYMENT.md`](DEPLOYMENT.md).
+
 `VERSION` is the single authoritative applet version. Increase it before a release, then build the installer artifacts:
 
 ```powershell

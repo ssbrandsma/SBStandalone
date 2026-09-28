@@ -17,6 +17,6 @@ function ArtworkRequest:fetch(p, cb)
  self.resolver:resolve(self.host,function(ip)
   if not ip then cb(nil,"artwork DNS failed"); return end
   local r=RequestHttp(function(body,err) if body or err then cb(body,err) end end,"GET",self.path..q,{headers={Host=self.host,Accept="image/png,image/jpeg",Connection="close"}})
-  local h=SocketHttp(jnt,ip,self.port,"StandaloneRadioArtwork"); h.t_getSendHeaders=function() return { ["User-Agent"]="StandaloneRadio/0.8.0" } end; h:fetch(r)
+  local h=SocketHttp(jnt,ip,self.port,"StandaloneRadioArtwork"); h.t_getSendHeaders=function() return { ["User-Agent"]="StandaloneRadio/0.8.1" } end; h:fetch(r)
  end)
 end
