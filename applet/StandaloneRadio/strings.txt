@@ -6,6 +6,10 @@ STANDALONE_RADIO_STOP
 	EN	Stop
 	NL	Stop
 
+STANDALONE_RADIO_NOW_PLAYING
+	EN	Now Playing
+	NL	Speelt nu
+
 STANDALONE_RADIO_BROWSER
 	EN	Radio Browser
 	NL	Radio Browser
