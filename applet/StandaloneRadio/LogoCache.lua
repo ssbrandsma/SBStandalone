@@ -154,7 +154,7 @@ end
 
 function LogoCache:ensure(station, callback)
 	callback = callback or function() end
-	if not station or station.source ~= "radiobrowser" then
+	if not station or (station.source ~= "radiobrowser" and station.source ~= "radiofeeds") then
 		callback(nil)
 		return
 	end
@@ -202,6 +202,11 @@ function LogoCache:ensure(station, callback)
 	os.remove(tempPath)
 	self.log:info("StandaloneRadio: downloading logo ", uuid)
 	if string.match(string.lower(favicon), "^https://") then
+		if station.source == "radiofeeds" then
+			self.log:warn("StandaloneRadio: RadioFeeds HTTPS logo unsupported; using fallback")
+			callback(nil)
+			return
+		end
 		local url = self.baseUrl .. "?type=station&stationuuid=" .. uuid
 		self.log:info("StandaloneRadio: logo route=bootstrap-bridge url=", url)
 		local command = "wget -q -T 20 -O - " .. shellQuote(url) .. " 2>/dev/null | dd of=" .. shellQuote(tempPath) .. " bs=1024 count=513 2>/dev/null"

@@ -21,6 +21,7 @@ local Countries = require("applets.StandaloneRadio.Countries")
 local NowPlaying = require("applets.StandaloneRadio.NowPlaying")
 local PresetStore = require("applets.StandaloneRadio.PresetStore")
 local RadioBrowser = require("applets.StandaloneRadio.RadioBrowser")
+local RadioFeedsClient = require("applets.StandaloneRadio.RadioFeedsClient")
 local Stations = require("applets.StandaloneRadio.Stations")
 local StreamPlayer = require("applets.StandaloneRadio.StreamPlayer")
 local TrackArtwork = require("applets.StandaloneRadio.TrackArtwork")
@@ -74,6 +75,7 @@ function _ensureComponents(self)
 			end
 		end,
 	})
+	self.radioFeeds = RadioFeedsClient.new({ log = log })
 	self.trackArtwork = TrackArtwork.new({
 		log = log,
 		nowPlaying = self.nowPlaying,
@@ -90,7 +92,10 @@ function _ensureComponents(self)
 			end,
 			onMetadata = function(title)
 				self.nowPlaying:setMetadata(title)
-				self.trackArtwork:lookup(self.streamPlayer:getCurrentStation(), title)
+				local station = self.streamPlayer:getCurrentStation()
+				if not station or station.source ~= "radiofeeds" then
+					self.trackArtwork:lookup(station, title)
+				end
 			end,
 				onSelected = function(station)
 					self.lastStation = station
@@ -151,6 +156,20 @@ end
 
 function _playStation(self, station)
 	if not station then
+		return
+	end
+
+	if station.source == "radiofeeds" and string.match(string.lower(station.url or ""), "%.m3u[%?%#]?")
+		or station.source == "radiofeeds" and string.match(string.lower(station.url or ""), "%.pls[%?%#]?") then
+		self.radioFeeds:resolveStation(station, function(resolved, err)
+			if not resolved then
+				log:warn("StandaloneRadio: RadioFeeds playlist resolution failed: ", tostring(err))
+				self:_showPopup(self:string("STANDALONE_RADIO_FAILED"))
+				return
+			end
+			_logInfo("RadioFeeds playlist resolved ", station.url, " -> ", resolved.url)
+			self:_playStation(resolved)
+		end)
 		return
 	end
 
@@ -222,6 +241,14 @@ function _refreshMenu(self)
 			weight = 2,
 			callback = function()
 				self:radioBrowserMenu()
+			end,
+		},
+		{
+			text = self:string("STANDALONE_RADIO_RADIOFEEDS"),
+			sound = "SELECT",
+			weight = 3,
+			callback = function()
+				self:radioFeedsMenu(self.radioFeeds:rootUrl(), self:string("STANDALONE_RADIO_RADIOFEEDS"))
 			end,
 		},
 	}
@@ -424,6 +451,89 @@ function _showSearch(self)
 	window:addWidget(Keyboard("keyboard", "qwerty", input))
 	window:focusWidget(group)
 	self:tieAndShowWindow(window)
+end
+
+
+local function urlEncode(value)
+	return (tostring(value or ""):gsub("([^%w%-_%.~])", function(character)
+		return string.format("%%%02X", string.byte(character))
+	end))
+end
+
+
+function _showRadioFeedsSearch(self, entry)
+	local window = Window("text_list", entry.title)
+	local input = Textinput("textinput", Textinput.textValue("", 0, 64), function(_, value)
+		local url = string.gsub(entry.url, "{QUERY}", urlEncode(value))
+		self:radioFeedsMenu(url, entry.title)
+		return true
+	end)
+	local backspace = Keyboard.backspace()
+	local group = Group("keyboard_textinput", { textinput = input, backspace = backspace })
+	window:addWidget(group)
+	window:addWidget(Keyboard("keyboard", "qwerty", input))
+	window:focusWidget(group)
+	self:tieAndShowWindow(window)
+end
+
+
+function _radioFeedsItems(self, entries)
+	local items = {}
+	for index, entry in ipairs(entries or {}) do
+		local selected = entry
+		local item = { text = selected.title, sound = "SELECT", weight = index }
+		if selected.type == "link" and selected.url then
+			item.callback = function() self:radioFeedsMenu(selected.url, selected.title) end
+		elseif selected.type == "search" and selected.url then
+			item.callback = function() self:_showRadioFeedsSearch(selected) end
+		elseif selected.type == "audio" and selected.url then
+			item.callback = function()
+				local station, err = self.radioFeeds:toStation(selected)
+				if not station then
+					log:warn("StandaloneRadio: invalid RadioFeeds station: ", tostring(err))
+					self:_showPopup(self:string("STANDALONE_RADIO_FAILED"))
+					return
+				end
+				_logInfo("selected RadioFeeds station ", station.name, " bitrate=", tostring(station.bitrate))
+				self:_playStation(station)
+			end
+		elseif selected.type == "directory" then
+			item.callback = function() self:_showRadioFeedsEntries(selected.title, selected.children or {}) end
+		else
+			item.style = "item"
+		end
+		items[#items + 1] = item
+	end
+	if #items == 0 then items[1] = { text = self:string("STANDALONE_RADIO_NO_STATIONS"), style = "item", weight = 0 } end
+	return items
+end
+
+
+function _showRadioFeedsEntries(self, title, entries)
+	local window = Window("text_list", title)
+	local menu = SimpleMenu("menu")
+	window:addWidget(menu)
+	menu:setItems(self:_radioFeedsItems(entries))
+	self:tieAndShowWindow(window)
+end
+
+
+function radioFeedsMenu(self, url, title)
+	if not self:_ensureComponents() then return end
+	local window = Window("text_list", title)
+	local menu = SimpleMenu("menu")
+	window:addWidget(menu)
+	menu:setItems({ { text = self:string("STANDALONE_RADIO_LOADING"), style = "item", weight = 0 } })
+	self:tieAndShowWindow(window)
+	self.radioFeeds:fetchDirectory(url, function(directory, err)
+		if err then
+			log:warn("StandaloneRadio: RadioFeeds directory failed url=", url, " error=", tostring(err))
+			menu:setItems({ { text = self:string("STANDALONE_RADIO_RADIOFEEDS_FAILED"), style = "item", weight = 0 } })
+		else
+			menu:setItems(self:_radioFeedsItems(directory.children))
+		end
+		menu:reLayout()
+	end)
 end
 
 

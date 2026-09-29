@@ -14,6 +14,14 @@ STANDALONE_RADIO_BROWSER
 	EN	Radio Browser
 	NL	Radio Browser
 
+STANDALONE_RADIO_RADIOFEEDS
+	EN	RadioFeeds UK & Ireland
+	NL	RadioFeeds VK & Ierland
+
+STANDALONE_RADIO_RADIOFEEDS_FAILED
+	EN	Unable to load RadioFeeds
+	NL	RadioFeeds kan niet worden geladen
+
 STANDALONE_RADIO_LOADING
 	EN	Loading...
 	NL	Laden...

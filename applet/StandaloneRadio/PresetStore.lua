@@ -23,6 +23,7 @@ local function clonePreset(station, preset)
 		source = station.source or "user",
 		codec = station.codec,
 		bitrate = station.bitrate,
+		playlistUrl = station.playlistUrl,
 		countrycode = station.countrycode,
 		preset = preset,
 	}
