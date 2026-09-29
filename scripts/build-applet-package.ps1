@@ -50,6 +50,8 @@ $requiredRootFiles = @(
 	"NowPlaying.lua",
 	"PresetStore.lua",
 	"RadioBrowser.lua",
+	"RadioFeedsClient.lua",
+	"RadioFeedsOpml.lua",
 	"Resolver.lua",
 	"StandaloneRadioApplet.lua",
 	"StandaloneRadioMeta.lua",
@@ -153,7 +155,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Fix Now Playing logo display and safely restore the Home background.")
+	$xml = $xml.Replace("Applet Installer package release $version.", "Add direct RadioFeeds UK &amp; Ireland browsing and playback.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

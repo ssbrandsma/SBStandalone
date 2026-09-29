@@ -20,7 +20,7 @@ RadioBrowser.__index = RadioBrowser
 
 local API_HOST = "all.api.radio-browser.info"
 local API_PORT = 80
-local USER_AGENT = "StandaloneRadio/0.8.1"
+local USER_AGENT = "StandaloneRadio/0.8.2"
 local CACHE_DIR = "/etc/squeezeplay/userpath/StandaloneRadio/cache/stations"
 
 local PAGE_SIZE = 250

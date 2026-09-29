@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<opml version="1.1">
+  <head>
+    <title>RadioFeeds for mysqueezebox</title>
+    <ownerName>Vincent Lo</ownerName>
+  </head>
+  <body>
+    <outline text="Browse UK Radio by Name" type="link" URL="http://www.radiofeeds.co.uk/MyPicks/integ.opml?username=example" />
+    <outline text="&gt; Search UK Radio by Name" type="search" URL="http://www.radiofeeds.co.uk/MyPicks/integsearch.opml?term={QUERY}&amp;username=example&amp;search=1" />
+    <outline text="Stations C-E">
+      <outline text="Classic FM (mp3) [DAB+ &#8211; National, Classical]" type="audio" icon="http://images.example.invalid/classic.png" URL="http://streams.example.invalid/ClassicFMMP3.m3u" bitrate="128" />
+      <outline text="Caf&#233; Radio &#8593; 256k" type="audio" URL="http://streams.example.invalid/listen.pls?sid=1" bitrate="256" />
+    </outline>
+  </body>
+</opml>
