@@ -155,7 +155,7 @@ function TrackArtwork:lookup(station, streamTitle)
 			["Connection"] = "close",
 		} })
 		self.http = SocketHttp(jnt, ip, API_PORT, "StandaloneRadioTrackArtwork")
-		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.0" } end
+		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.1" } end
 		self.http:fetch(request)
 	end)
 end
@@ -201,7 +201,7 @@ function TrackArtwork:_downloadPicture(station, key, generation, picture)
 			Host = target.hostHeader, Accept = "image/png,image/jpeg,*/*", Connection = "close",
 		} })
 		local socket = SocketHttp(jnt, ip, target.port, "StandaloneRadioTrackArtworkImage")
-		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.0" } end
+		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.1" } end
 		self.imageHttp = socket
 		local ok, fetchErr = pcall(function() socket:fetch(request) end)
 		if not ok then

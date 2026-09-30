@@ -200,7 +200,7 @@ function LogoCache:_download(station, uuid, url, tempPath, callback)
 			Host = target.hostHeader, Accept = "image/png,image/jpeg,*/*", Connection = "close",
 		} })
 		local socket = SocketHttp(jnt, ip, target.port, "StandaloneRadioLogo")
-		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.0" } end
+		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.1" } end
 		self.http = socket
 		local ok, fetchErr = pcall(function() socket:fetch(request) end)
 		if not ok then

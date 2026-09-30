@@ -156,7 +156,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Add transparent HTTPS support through local sbproxy for streams, playlists and artwork.")
+	$xml = $xml.Replace("Applet Installer package release $version.", "Fix HTTPS Proxy health detection on stock SqueezePlay.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()
