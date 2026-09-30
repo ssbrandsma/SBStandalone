@@ -10,6 +10,7 @@ local Stream = require("squeezeplay.stream")
 local Framework = require("jive.ui.Framework")
 local Task = require("jive.ui.Task")
 local Timer = require("jive.ui.Timer")
+local UrlTransport = require("applets.StandaloneRadio.UrlTransport")
 local decode = require("squeezeplay.decode")
 local jnt = jnt
 
@@ -48,15 +49,6 @@ local function decoderFor(station)
 end
 
 
-local function forceHttpUrl(url)
-	url = tostring(url or "")
-	if string.lower(string.sub(url, 1, 8)) == "https://" then
-		return "http://" .. string.sub(url, 9)
-	end
-	return url
-end
-
-
 local function localPlayback()
 	local player = Player:getLocalPlayer() or Player:getCurrentPlayer()
 	if not player then
@@ -80,7 +72,7 @@ function new(options)
 		watchdogStalls = 0,
 		audioUnderrunRecovered = false,
 		ownsPlayback = false,
-		forceHttp = options.forceHttp == true,
+		httpsProxyStatus = options.httpsProxyStatus,
 	}, StreamPlayer)
 	player.resolver = Resolver.new({
 		log = options.log,
@@ -114,24 +106,32 @@ function StreamPlayer:_resetAudioRecovery()
 end
 
 
-function StreamPlayer:setForceHttp(forceHttp)
-	self.forceHttp = forceHttp == true
-end
-
-
-local function redirectedStation(station, location, forceHttp)
-	if forceHttp then location = forceHttpUrl(location) end
-	local host, port, path = string.match(location, "^http://([^:/]+):?(%d*)(/.*)$")
+local function redirectedStation(station, location)
+	local scheme, host, port, path = string.match(location, "^(https?)://([^:/]+):?(%d*)(/.*)$")
 	if not host then
 		return nil
 	end
 	local copy = {}
 	for key, value in pairs(station) do copy[key] = value end
 	copy.host = host
-	copy.port = tonumber(port) or 80
+	copy.port = tonumber(port) or (scheme == "https" and 443 or 80)
 	copy.path = path
+	copy.scheme = scheme
 	copy.url = location
 	copy.url_resolved = location
+	return copy
+end
+
+
+local function transportStation(station, log)
+	local url = station and station.url
+	local target, err = UrlTransport.forRequest(url, log)
+	if not target then return nil, err end
+	local copy = {}
+	for key, value in pairs(station) do copy[key] = value end
+	copy.host, copy.port, copy.path = target.host, target.port, target.path
+	copy.hostHeader = target.hostHeader
+	copy.transportUrl = target.url
 	return copy
 end
 
@@ -354,6 +354,9 @@ function StreamPlayer:_handleDisconnect(reason, flush)
 	end
 
 	local station = self.desiredStation
+	if self.httpsProxyStatus and UrlTransport.isHttps(station.url) then
+		self.httpsProxyStatus:transportFailed(station.url)
+	end
 	local generation = self.generation
 	self.playbackActive = false
 	self.currentMetadata = nil
@@ -380,8 +383,14 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 		return
 	end
 
-	self.log:info("StandaloneRadio: redirect probe resolving ", station.host)
-	self.resolver:resolve(station.host, function(ip, method, resolveErr)
+	local target, targetErr = transportStation(station, self.log)
+	if not target then
+		self.log:warn("StandaloneRadio: redirect probe transport failed: ", tostring(targetErr))
+		self:_finishRedirectProbe(token, station, callback)
+		return
+	end
+	self.log:info("StandaloneRadio: redirect probe resolving ", target.host)
+	self.resolver:resolve(target.host, function(ip, method, resolveErr)
 		if self.generation ~= generation or self.redirectProbeToken ~= token then
 			return
 		end
@@ -398,11 +407,12 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 				return
 			end
 			hopDone = true
+			if target.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(station.url) end
 			self.log:warn("StandaloneRadio: redirect probe failed; using current URL: ", tostring(err))
 			self:_finishRedirectProbe(token, station, callback)
-		end, "HEAD", station.path, {
+		end, "HEAD", target.path, {
 			headers = {
-				["Host"] = station.host .. ((station.port and station.port ~= 80) and (":" .. tostring(station.port)) or ""),
+				["Host"] = target.hostHeader,
 				["Connection"] = "close",
 				["User-Agent"] = "SqueezePlay StandaloneRadio",
 			},
@@ -416,13 +426,13 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 				self.log:info("StandaloneRadio: redirect probe response=", tostring(statusLine))
 
 				if status and status >= 300 and status < 400 then
-					self.log:info("StandaloneRadio: redirect probe Location=", tostring(location))
+				self.log:info("StandaloneRadio: redirect probe Location=", UrlTransport.redact(location))
 					if not location or redirectCount >= MAX_STREAM_REDIRECTS then
 						self.log:warn("StandaloneRadio: redirect probe has no usable Location")
 						self:_finishRedirectProbe(token, station, callback)
 						return
 					end
-					local redirected = redirectedStation(station, location, self.forceHttp)
+					local redirected = redirectedStation(station, location)
 					if not redirected then
 						self.log:warn("StandaloneRadio: redirect probe ignored non-HTTP Location")
 						self:_finishRedirectProbe(token, station, callback)
@@ -433,7 +443,7 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 				end
 
 				if status and status >= 200 and status < 300 then
-					self.log:info("StandaloneRadio: redirect probe final URL=", tostring(station.url))
+				self.log:info("StandaloneRadio: redirect probe final URL=", UrlTransport.redact(station.url))
 					self:_finishRedirectProbe(token, station, callback)
 					return
 				end
@@ -443,12 +453,13 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 			end,
 		})
 
-		local socket = SocketHttp(jnt, ip, station.port or 80, "StandaloneRadioRedirectProbe")
+		local socket = SocketHttp(jnt, ip, target.port or 80, "StandaloneRadioRedirectProbe")
 		self.redirectProbeSockets[#self.redirectProbeSockets + 1] = socket
 		self.redirectProbeRequests[#self.redirectProbeRequests + 1] = request
 		local ok, fetchErr = pcall(function() socket:fetch(request) end)
 		if not ok and not hopDone then
 			hopDone = true
+			if target.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(station.url) end
 			self.log:warn("StandaloneRadio: redirect probe could not start: ", tostring(fetchErr))
 			self:_finishRedirectProbe(token, station, callback)
 		end
@@ -481,12 +492,12 @@ function StreamPlayer:_installHooks(playback)
 			self.log:info("StandaloneRadio: stream response=", tostring(statusLine))
 			local location = string.match(headerText, "[Ll]ocation:%s*([^\r\n]+)")
 			if status and status >= 300 and status < 400 and location then
-				self.log:info("StandaloneRadio: stream redirect location=", location)
+				self.log:info("StandaloneRadio: stream redirect location=", UrlTransport.redact(location))
 			if self.redirectCount >= MAX_STREAM_REDIRECTS then
 				self.log:warn("StandaloneRadio: too many stream redirects")
 				return
 			end
-			local redirected = redirectedStation(self.desiredStation, location, self.forceHttp)
+			local redirected = redirectedStation(self.desiredStation, location)
 			if not redirected then
 				self.log:warn("StandaloneRadio: ignoring non-HTTP stream redirect")
 				return
@@ -542,13 +553,6 @@ end
 
 function StreamPlayer:_begin(station, reconnect)
 	self:_cancelReconnect()
-	if self.forceHttp and string.lower(string.sub(tostring(station and station.url or ""), 1, 8)) == "https://" then
-		station = redirectedStation(station, station.url, true)
-		if not station then
-			self.log:warn("StandaloneRadio: could not force stream URL to HTTP")
-			return false
-		end
-	end
 	self.ownsPlayback = true
 	self.generation = self.generation + 1
 	local generation = self.generation
@@ -589,9 +593,15 @@ function StreamPlayer:_begin(station, reconnect)
 		self.desiredStation = playStation
 		self.pendingStation = playStation
 		Task("StandaloneRadioPlay", self, function()
+		local networkStation, transportErr = transportStation(playStation, self.log)
+		if not networkStation then
+			self.log:warn("StandaloneRadio: playback transport failed: ", tostring(transportErr))
+			self:_notifyState(playStation, "FAILED", false)
+			return
+		end
 		self.log:info("StandaloneRadio: selected ", playStation.id)
-		self.log:info("StandaloneRadio: resolving playback host ", playStation.host)
-		self.resolver:resolve(playStation.host, function(ip)
+		self.log:info("StandaloneRadio: resolving playback host ", networkStation.host)
+		self.resolver:resolve(networkStation.host, function(ip)
 			if not self:_isCurrent(generation, playStation) then
 				return
 			end
@@ -613,12 +623,12 @@ function StreamPlayer:_begin(station, reconnect)
 			local decoder = decoderFor(playStation)
 			playback.flags = 0
 			playback.mode = decoder.mode
-			playback.header = "GET " .. playStation.path .. " HTTP/1.0\n" ..
-				"Host: " .. playStation.host .. "\n" ..
-				"User-Agent: SqueezePlay StandaloneRadio\n" ..
-				"Icy-MetaData: 1\n" ..
-				"Accept: " .. decoder.accept .. "\n" ..
-				"Cache-Control: no-cache\n\n"
+			playback.header = "GET " .. networkStation.path .. " HTTP/1.0\r\n" ..
+				"Host: " .. networkStation.hostHeader .. "\r\n" ..
+				"User-Agent: SqueezePlay StandaloneRadio\r\n" ..
+				"Icy-MetaData: 1\r\n" ..
+				"Accept: " .. decoder.accept .. "\r\n" ..
+				"Cache-Control: no-cache\r\n\r\n"
 			playback.autostart = '1'
 			playback.threshold = 0
 			playback.sentResume = false
@@ -640,7 +650,7 @@ function StreamPlayer:_begin(station, reconnect)
 			)
 			self.pendingStation = nil
 			self.log:info("StandaloneRadio: decoder started codec=", tostring(playStation.codec), " mode=", decoder.mode)
-			playback:_streamConnect(ip, playStation.port)
+			playback:_streamConnect(ip, networkStation.port)
 		end)
 		end):addTask()
 	end)

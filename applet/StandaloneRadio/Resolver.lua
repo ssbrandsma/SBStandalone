@@ -89,6 +89,10 @@ function Resolver:resolve(host, callback)
 		callback(nil, "invalid-host", "invalid host")
 		return
 	end
+	if isIpv4(host) then
+		callback(host, "literal")
+		return
+	end
 
 	self:_resolveWithNslookup(host, "nslookup", callback)
 end

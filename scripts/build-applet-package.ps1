@@ -44,8 +44,8 @@ if (-not $repositoryUri.IsAbsoluteUri -or $repositoryUri.Scheme -notin @("http",
 $BaseUrl = $BaseUrl.TrimEnd('/')
 
 $requiredRootFiles = @(
-	"ArtworkRequest.lua",
 	"Countries.lua",
+	"HttpsProxyStatus.lua",
 	"LogoCache.lua",
 	"NowPlaying.lua",
 	"PresetStore.lua",
@@ -58,6 +58,7 @@ $requiredRootFiles = @(
 	"Stations.lua",
 	"StreamPlayer.lua",
 	"TrackArtwork.lua",
+	"UrlTransport.lua",
 	"strings.txt"
 )
 $requiredImageFiles = @(
@@ -155,7 +156,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Add direct RadioFeeds UK &amp; Ireland browsing and playback.")
+	$xml = $xml.Replace("Applet Installer package release $version.", "Add transparent HTTPS support through local sbproxy for streams, playlists and artwork.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

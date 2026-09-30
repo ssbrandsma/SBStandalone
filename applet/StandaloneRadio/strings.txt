@@ -50,10 +50,6 @@ STANDALONE_RADIO_REFRESH
 	EN	Refresh stations
 	NL	Zenders vernieuwen
 
-STANDALONE_RADIO_FORCE_HTTP
-	EN	Try http on https
-	NL	Probeer http bij https
-
 STANDALONE_RADIO_PREVIOUS_PAGE
 	EN	Previous page
 	NL	Vorige pagina
@@ -89,6 +85,10 @@ STANDALONE_RADIO_STOPPING
 STANDALONE_RADIO_FAILED
 	EN	Playback failed
 	NL	Afspelen mislukt
+
+STANDALONE_RADIO_HTTPS_PROXY_REQUIRED
+	EN	HTTPS Proxy is unavailable. Install HTTPS Proxy applet for https compatibility.
+	NL	HTTPS Proxy is niet beschikbaar. Installeer HTTPS Proxy-applet voor https compatabiliteit
 
 STANDALONE_RADIO_STATUS_IDLE
 	EN	Standalone Mode: presets 1-6 ready

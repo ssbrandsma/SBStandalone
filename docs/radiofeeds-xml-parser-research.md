@@ -56,7 +56,7 @@ RadioFeeds still documents this legacy endpoint:
 http://www.radiofeeds.co.uk/mypicks/menu.opml?username=<username>
 ```
 
-The standalone entry point is `network.opml?username=forusewithstandalone`. Every request must identify itself with `User-Agent: Lyrion Music Server` and should send `Accept: application/xml,text/xml,*/*`; without that user agent the site returns its HTML instructions page. With those headers the root returns HTTP 200 and `Content-Type: text/x-opml`.
+The standalone entry point is `menu.opml?username=forusewithstandalone`. Every request must identify itself with `User-Agent: Lyrion Music Server` and should send `Accept: application/xml,text/xml,*/*`; without that user agent the site returns its HTML instructions page. With those headers the root returns HTTP 200 and `Content-Type: text/x-opml`.
 
 The live root is OPML 1.1 declared as ISO-8859-1; directory/station documents have also been observed as UTF-8. Navigation uses `text`, `type="link"`, and uppercase `URL`. Search entries use `type="search"` with `{QUERY}` in the URL. Audio entries use `text`, `type="audio"`, uppercase `URL`, `icon`, and `bitrate`; their URLs commonly point to M3U or PLS playlists rather than final streams. XML includes `&amp;`, `&#8211;`, and `&#8593;`. Logos commonly request 600x600 artwork and include both HTTP and HTTPS URLs.
 
