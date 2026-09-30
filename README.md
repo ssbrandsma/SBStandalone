@@ -21,6 +21,7 @@ New installations have no preloaded stations. Assign any Radio Browser station t
 - Root SSH access to the radio. This project uses the radio's legacy Dropbear SSH service.
 - A Windows machine with PowerShell and the OpenSSH `ssh` and `scp` clients available. Windows 10/11 normally include them.
 - Internet access for the radio streams.
+- The local `sbproxy` helper listening on `127.0.0.1:8765` when HTTPS stations or artwork are used.
 
 This project does not flash firmware or enable SSH for you. If SSH is not already available on your radio, enable it using the method appropriate for your firmware before proceeding.
 
@@ -113,7 +114,7 @@ Preset and transport handling is enabled when SqueezePlay starts, so assigned pr
 
 The `Radio Browser` menu has local `Search`, `Popular`, `All stations`, `Country`, and `Refresh stations` views. The default country is the Netherlands (`NL`), selected with an offline built-in ISO country list. The selected country code survives restart; an invalid saved value falls back to `NL`.
 
-For each selected country, StandaloneRadio downloads non-broken Radio Browser stations in deterministic 250-entry pages and keeps AAC/AAC+, Ogg Vorbis, FLAC, AIFF/PCM, and MP3 streams supported by SqueezePlay. HTTPS streams are excluded by default. The `Try http on https` option removes that API filter and rewrites HTTPS stream URLs to HTTP before playback.
+For each selected country, StandaloneRadio downloads non-broken Radio Browser stations in deterministic 250-entry pages and keeps AAC/AAC+, Ogg Vorbis, FLAC, AIFF/PCM, and MP3 streams supported by SqueezePlay. HTTPS streams use the local `sbproxy` compatibility service while their original URLs remain in station data and presets.
 
 Each country is cached as compact JSON Lines under `/etc/squeezeplay/userpath/StandaloneRadio/cache/stations/`. Refresh writes one station at a time to a temporary file and atomically replaces the previous cache only after every page succeeds. The applet never retains the complete country directory in memory. A fresh cache opens immediately without a request; a stale cache opens immediately and refreshes in the background. Cached countries remain browseable offline, and `Refresh stations` refreshes only the selected country.
 
@@ -125,7 +126,7 @@ Saved presets do not depend on the selected country or its cache: once a station
 
 Radio Browser stations may provide artwork through their `favicon` field. StandaloneRadio downloads supported artwork asynchronously after playback has already started, stores it locally on the Radio, and uses the cached artwork later for saved presets.
 
-On stock 7.7.3 firmware, runtime artwork download is intentionally conservative: HTTP PNG and JPEG images are supported, oversized files are rejected, and unsupported or unreachable artwork falls back to the packaged generic radio icon. Many Radio Browser favicons are HTTPS or SVG/ICO, and those may show the fallback because the stock BusyBox `wget` cannot fetch HTTPS.
+Runtime artwork download accepts HTTP and, through local `sbproxy`, HTTPS PNG and JPEG images. Oversized, unsupported, or unreachable artwork falls back to the packaged generic radio icon; SVG and ICO remain unsupported.
 
 ## Assigning Presets
 

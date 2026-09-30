@@ -1,4 +1,4 @@
-local collectgarbage, io, ipairs, os, pairs, pcall, setmetatable, tonumber, tostring, type = collectgarbage, io, ipairs, os, pairs, pcall, setmetatable, tonumber, tostring, type
+local collectgarbage, io, ipairs, os, pcall, setmetatable, tonumber, tostring, type = collectgarbage, io, ipairs, os, pcall, setmetatable, tonumber, tostring, type
 
 local lfs = require("lfs")
 local string = require("string")
@@ -7,6 +7,7 @@ local RequestHttp = require("jive.net.RequestHttp")
 local Resolver = require("applets.StandaloneRadio.Resolver")
 local SocketHttp = require("jive.net.SocketHttp")
 local Stations = require("applets.StandaloneRadio.Stations")
+local UrlTransport = require("applets.StandaloneRadio.UrlTransport")
 local Timer = require("jive.ui.Timer")
 
 local okJson, json = pcall(require, "json")
@@ -19,15 +20,15 @@ local RadioBrowser = {}
 RadioBrowser.__index = RadioBrowser
 
 local API_HOST = "all.api.radio-browser.info"
-local API_PORT = 80
-local USER_AGENT = "StandaloneRadio/0.8.2"
+local API_BASE = "http://" .. API_HOST
+local USER_AGENT = "StandaloneRadio/0.9.0"
 local CACHE_DIR = "/etc/squeezeplay/userpath/StandaloneRadio/cache/stations"
 
 local PAGE_SIZE = 250
 local SEARCH_CHUNK_SIZE = 100
 local POPULAR_CHUNK_SIZE = 50
 local CACHE_MAX_AGE_SECONDS = 86400
-local STATION_CACHE_VERSION = 4
+local STATION_CACHE_VERSION = 5
 
 local SUPPORTED_CODECS = {
 	["aac"] = true, ["aac+"] = true, ["ogg"] = true,
@@ -52,28 +53,20 @@ local function popularPath(code) return cacheBase(code) .. ".popular.jsonl" end
 local function metadataPath(code) return cacheBase(code) .. ".meta.json" end
 local function legacyPath(code) return cacheBase(code) .. ".json" end
 
-local function forceHttpUrl(url)
-	if string.lower(string.sub(url, 1, 8)) == "https://" then
-		return "http://" .. string.sub(url, 9)
-	end
-	return url
-end
-
-local function compatible(item, forceHttp)
+local function compatible(item)
 	if type(item) ~= "table" then return false end
 	local url = trim(item.url_resolved)
 	if url == "" then url = trim(item.url) end
 	local scheme = string.lower(string.sub(url, 1, 8))
 	return trim(item.name) ~= "" and trim(item.stationuuid) ~= ""
 		and SUPPORTED_CODECS[string.lower(trim(item.codec))] == true
-		and (string.sub(scheme, 1, 7) == "http://" or (forceHttp and scheme == "https://"))
+		and (string.sub(scheme, 1, 7) == "http://" or scheme == "https://")
 		and (item.lastcheckok == nil or isOne(item.lastcheckok)) and not isOne(item.hls)
 end
 
-local function toStation(item, forceHttp, countrycode)
+local function toStation(item, countrycode)
 	local url = trim(item.url_resolved)
 	if url == "" then url = trim(item.url) end
-	if forceHttp then url = forceHttpUrl(url) end
 	local station = {
 		id = "radiobrowser:" .. trim(item.stationuuid), stationuuid = trim(item.stationuuid),
 		name = trim(item.name), url = url, favicon = trim(item.favicon), source = "radiobrowser",
@@ -97,7 +90,7 @@ local function recordStation(record, countrycode)
 		stationuuid = record[1], name = record[2], url = record[3], favicon = record[4],
 		codec = record[5], bitrate = record[6], clickcount = record[7], votes = record[8],
 		lastcheckok = 1, hls = 0,
-	}, false, countrycode)
+	}, countrycode)
 end
 
 local function sortByName(a, b)
@@ -111,8 +104,8 @@ local function morePopular(a, b)
 	return sortByName(a, b)
 end
 
-local function newSocket(ip)
-	local http = SocketHttp(jnt, ip, API_PORT, "StandaloneRadioRadioBrowser")
+local function newSocket(ip, port)
+	local http = SocketHttp(jnt, ip, port, "StandaloneRadioRadioBrowser")
 	http.t_getSendHeaders = function() return { ["User-Agent"] = USER_AGENT } end
 	return http
 end
@@ -124,29 +117,18 @@ end
 function new(options)
 	ensureDir(CACHE_DIR)
 	return setmetatable({
-		log = options.log, forceHttp = options.forceHttp == true, refreshes = {},
+		log = options.log, refreshes = {},
 		resolver = Resolver.new({ log = options.log }),
 	}, RadioBrowser)
 end
 
-function RadioBrowser:setForceHttp(forceHttp)
-	forceHttp = forceHttp == true
-	if self.forceHttp == forceHttp then return end
-	self.forceHttp = forceHttp
-	for _, request in pairs(self.refreshes) do
-		closeFile(request.file)
-		os.remove(request.temporaryPath)
-	end
-	self.refreshes = {}
-	self:cancelSearch()
-	self:cancelPopular()
-end
-
-function RadioBrowser:_fetchWithIp(ip, path, sink, headers, slot)
+function RadioBrowser:_fetchWithIp(ip, url, sink, headers, slot)
+	local target, targetErr = UrlTransport.forRequest(url, self.log)
+	if not target then sink(nil, targetErr); return end
 	local requestHeaders = headers or {}
-	requestHeaders["Host"] = API_HOST
-	local request = RequestHttp(sink, "GET", path, { headers = requestHeaders })
-	self[slot or "http"] = newSocket(ip)
+	requestHeaders["Host"] = target.hostHeader
+	local request = RequestHttp(sink, "GET", target.path, { headers = requestHeaders })
+	self[slot or "http"] = newSocket(ip, target.port)
 	self[slot or "http"]:fetch(request)
 end
 
@@ -158,14 +140,14 @@ function RadioBrowser:loadCache(code)
 	file:close()
 	local ok, metadata = pcall(function() return json.decode(body) end)
 	if not ok or type(metadata) ~= "table" or metadata.version ~= STATION_CACHE_VERSION
-		or metadata.countrycode ~= code or isOne(metadata.forceHttp) ~= self.forceHttp
+		or metadata.countrycode ~= code
 		or not tonumber(metadata.count) or not lfs.attributes(dataPath(code), "mode") then
 		self.log:warn("StandaloneRadio: incompatible station cache country=", code)
 		return nil, false, "incompatible cache"
 	end
 	local directory = {
 		countrycode = code, count = tonumber(metadata.count) or 0,
-		forceHttp = self.forceHttp, path = dataPath(code),
+		path = dataPath(code),
 	}
 	local fetchedAt = tonumber(metadata.fetchedAt) or 0
 	local stale = fetchedAt <= 0 or os.time() - fetchedAt > CACHE_MAX_AGE_SECONDS
@@ -174,10 +156,10 @@ function RadioBrowser:loadCache(code)
 	return directory, stale
 end
 
-function RadioBrowser:_writeMetadata(code, count, forceHttp)
+function RadioBrowser:_writeMetadata(code, count)
 	local ok, body = pcall(function()
 		return json.encode({
-			version = STATION_CACHE_VERSION, countrycode = code, forceHttp = forceHttp == true,
+			version = STATION_CACHE_VERSION, countrycode = code,
 			fetchedAt = os.time(), count = count,
 		})
 	end)
@@ -405,11 +387,11 @@ function RadioBrowser:refresh(code, callback, progress)
 	local output = io.open(temporary, "wb")
 	if not output then callback(nil, "station cache write failed"); return false end
 	local request = {
-		count = 0, offset = 0, forceHttp = self.forceHttp,
+		count = 0, offset = 0,
 		file = output, temporaryPath = temporary, popular = {},
 	}
 	self.refreshes[code] = request
-	self.log:info("StandaloneRadio: refresh country=", code, " start forceHttp=", tostring(request.forceHttp))
+	self.log:info("StandaloneRadio: refresh country=", code, " start")
 
 	local function finish(err)
 		if self.refreshes[code] ~= request then return end
@@ -427,14 +409,14 @@ function RadioBrowser:refresh(code, callback, progress)
 			callback(nil, "station cache rename failed")
 			return
 		end
-		local saved, metadataErr = self:_writeMetadata(code, request.count, request.forceHttp)
+		local saved, metadataErr = self:_writeMetadata(code, request.count)
 		if not saved then callback(nil, metadataErr); return end
 		local popularSaved, popularErr = self:_writePopular(code, request.popular)
 		if not popularSaved then self.log:warn("StandaloneRadio: ", tostring(popularErr)) end
 		os.remove(legacyPath(code))
 		local directory = {
 			countrycode = code, count = request.count,
-			forceHttp = request.forceHttp, path = dataPath(code),
+			path = dataPath(code),
 		}
 		self.log:info("StandaloneRadio: refresh complete country=", code, " stations=", tostring(request.count))
 		callback(directory)
@@ -442,10 +424,9 @@ function RadioBrowser:refresh(code, callback, progress)
 
 	local function fetchPage(ip)
 		local path = "/json/stations/search?countrycode=" .. code
-			.. (request.forceHttp and "" or "&is_https=false")
 			.. "&hidebroken=true&order=name&reverse=false&offset=" .. tostring(request.offset)
 			.. "&limit=" .. tostring(PAGE_SIZE)
-		self:_fetchWithIp(ip, path, function(body, err)
+		self:_fetchWithIp(ip, API_BASE .. path, function(body, err)
 			if self.refreshes[code] ~= request then return end
 			if err then finish(err); return end
 			-- RequestHttp calls the sink once before the response body is available.
@@ -455,8 +436,8 @@ function RadioBrowser:refresh(code, callback, progress)
 			if not ok or type(page) ~= "table" then finish("invalid JSON"); return end
 			local returned = #page
 			for _, item in ipairs(page) do
-				if compatible(item, request.forceHttp) then
-					local station = toStation(item, request.forceHttp, code)
+				if compatible(item) then
+					local station = toStation(item, code)
 					if station then
 						local encoded, line = pcall(function() return json.encode(cacheRecord(station)) end)
 						if not encoded or not line then finish("station cache encode failed"); return end
@@ -479,7 +460,12 @@ function RadioBrowser:refresh(code, callback, progress)
 		end, { ["Accept"] = "application/json" }, "http")
 	end
 
-	self.resolver:resolve(API_HOST, function(ip)
+	local apiTarget, targetErr = UrlTransport.forRequest(API_BASE .. "/json/stations/search", self.log)
+	if not apiTarget then
+		finish(targetErr or "invalid Radio Browser API URL")
+		return false
+	end
+	self.resolver:resolve(apiTarget.host, function(ip)
 		if self.refreshes[code] ~= request then return end
 		if not ip then finish("DNS failed"); return end
 		fetchPage(ip)
@@ -489,9 +475,12 @@ end
 
 function RadioBrowser:recordClick(station)
 	if not station or station.source ~= "radiobrowser" or not station.stationuuid or station.stationuuid == "" then return end
-	self.resolver:resolve(API_HOST, function(ip)
+	local clickUrl = API_BASE .. "/json/url/" .. station.stationuuid
+	local target = UrlTransport.forRequest(clickUrl, self.log)
+	if not target then return end
+	self.resolver:resolve(target.host, function(ip)
 		if not ip then self.log:warn("StandaloneRadio: Radio Browser click DNS failed"); return end
-		self:_fetchWithIp(ip, "/json/url/" .. station.stationuuid, function(_, err)
+		self:_fetchWithIp(ip, clickUrl, function(_, err)
 			if err then self.log:warn("StandaloneRadio: Radio Browser click failed: ", tostring(err)) end
 		end, { ["Accept"] = "application/json" }, "clickHttp")
 	end)

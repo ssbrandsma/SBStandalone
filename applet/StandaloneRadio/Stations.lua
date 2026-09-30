@@ -5,14 +5,15 @@ local string = require("string")
 module(...)
 
 local function parseUrl(station)
-	local host, port, path = string.match(station.url, "^http://([^/:]+):?(%d*)(/.*)$")
+	local scheme, host, port, path = string.match(station.url, "^(https?)://([^/:]+):?(%d*)(/.*)$")
 	if not host then
-		return nil, "URL must be an HTTP URL with a path"
+		return nil, "URL must be an HTTP or HTTPS URL with a path"
 	end
 
 	station.host = host
-	station.port = (port == "" and 80) or tonumber(port)
+	station.port = (port == "" and (scheme == "https" and 443 or 80)) or tonumber(port)
 	station.path = path
+	station.scheme = scheme
 	return true
 end
 

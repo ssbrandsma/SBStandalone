@@ -5,7 +5,6 @@ local table = require("table")
 local string = require("string")
 
 local Applet = require("jive.Applet")
-local Checkbox = require("jive.ui.Checkbox")
 local Framework = require("jive.ui.Framework")
 local Group = require("jive.ui.Group")
 local Keyboard = require("jive.ui.Keyboard")
@@ -17,6 +16,7 @@ local Timer = require("jive.ui.Timer")
 local Window = require("jive.ui.Window")
 
 local LogoCache = require("applets.StandaloneRadio.LogoCache")
+local HttpsProxyStatus = require("applets.StandaloneRadio.HttpsProxyStatus")
 local Countries = require("applets.StandaloneRadio.Countries")
 local NowPlaying = require("applets.StandaloneRadio.NowPlaying")
 local PresetStore = require("applets.StandaloneRadio.PresetStore")
@@ -60,12 +60,17 @@ function _ensureComponents(self)
 	})
 	self.radioBrowser = RadioBrowser.new({
 		log = log,
-		forceHttp = settings.forceHttp,
+	})
+	self.httpsProxyStatus = HttpsProxyStatus.new({
+		log = log,
+		onUnavailable = function()
+			self:_showPopup(self:string("STANDALONE_RADIO_HTTPS_PROXY_REQUIRED"), 4500)
+		end,
 	})
 	self.logoCache = LogoCache.new({
 		applet = self,
 		log = log,
-		baseUrl = settings.artworkBaseUrl,
+		httpsProxyStatus = self.httpsProxyStatus,
 	})
 	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1)
 	self.nowPlaying = NowPlaying.new(self, log, {
@@ -75,16 +80,16 @@ function _ensureComponents(self)
 			end
 		end,
 	})
-	self.radioFeeds = RadioFeedsClient.new({ log = log })
+	self.radioFeeds = RadioFeedsClient.new({ log = log, httpsProxyStatus = self.httpsProxyStatus })
 	self.trackArtwork = TrackArtwork.new({
 		log = log,
 		nowPlaying = self.nowPlaying,
-		baseUrl = settings.artworkBaseUrl,
+		httpsProxyStatus = self.httpsProxyStatus,
 	})
 	self.streamPlayer = StreamPlayer.new({
 		log = log,
 		lastStation = self.lastStation,
-		forceHttp = settings.forceHttp,
+		httpsProxyStatus = self.httpsProxyStatus,
 		callbacks = {
 			onState = function(station, state, show)
 				self.nowPlaying:update(station, state, show)
@@ -142,12 +147,12 @@ function _statusText(self)
 end
 
 
-function _showPopup(self, text)
+function _showPopup(self, text, duration)
 	local popup = Popup("popup", text)
 	popup:addWidget(Label("text", text))
 	popup:show()
 
-	local timer = Timer(1800, function()
+	local timer = Timer(duration or 1800, function()
 		popup:hide()
 	end, true)
 	timer:start()
@@ -569,17 +574,6 @@ end
 function _renderRadioBrowserMenu(self)
 	if not self.browserMenuWidget then return end
 	local code = self.activeCountryCode or self:_selectedCountryCode()
-	if not self.forceHttpCheckbox then
-		self.forceHttpCheckbox = Checkbox("checkbox", function(_, enabled)
-			local settings = self:getSettings()
-			settings.forceHttp = enabled == true
-			self:storeSettings()
-			self.radioBrowser:setForceHttp(settings.forceHttp)
-			self.streamPlayer:setForceHttp(settings.forceHttp)
-			_logInfo("force HTTP ", settings.forceHttp and "enabled" or "disabled")
-			self:_activateCountry(self.activeCountryCode or self:_selectedCountryCode())
-		end, (self:getSettings().forceHttp == true))
-	end
 	local stationCount = self.activeDirectory and self.activeDirectory.count or nil
 	local popularCount = stationCount and (stationCount > POPULAR_LIMIT and POPULAR_LIMIT or stationCount) or nil
 	local popularLabel = tostring(self:string("STANDALONE_RADIO_POPULAR"))
@@ -591,19 +585,14 @@ function _renderRadioBrowserMenu(self)
 		{ text = popularLabel, sound = "SELECT", weight = 2, callback = function() self:_showPopular() end },
 		{ text = allStationsLabel, sound = "SELECT", weight = 3, callback = function() self:_showAllStations() end },
 		{ text = tostring(self:string("STANDALONE_RADIO_COUNTRY")) .. ": " .. Countries.displayName(code), sound = "SELECT", weight = 4, callback = function() self:_showCountryMenu() end },
-		{
-			text = self:string("STANDALONE_RADIO_FORCE_HTTP"), sound = "SELECT", weight = 5,
-			style = "item_choice",
-			check = self.forceHttpCheckbox,
-		},
-		{ text = self:string("STANDALONE_RADIO_REFRESH"), sound = "SELECT", weight = 6, callback = function() self:_refreshCountry(code, true) end },
+		{ text = self:string("STANDALONE_RADIO_REFRESH"), sound = "SELECT", weight = 5, callback = function() self:_refreshCountry(code, true) end },
 	}
 	if self.directoryError then
-		items[#items + 1] = { text = self:string("STANDALONE_RADIO_BROWSER_FAILED"), style = "item", weight = 7 }
+		items[#items + 1] = { text = self:string("STANDALONE_RADIO_BROWSER_FAILED"), style = "item", weight = 6 }
 	elseif not self.activeDirectory or self.directoryRefreshing then
 		local loading = tostring(self:string("STANDALONE_RADIO_LOADING_STATIONS"))
 		if self.directoryLoadingCount then loading = loading .. " " .. tostring(self.directoryLoadingCount) end
-		items[#items + 1] = { text = loading, style = "item", weight = 7 }
+		items[#items + 1] = { text = loading, style = "item", weight = 6 }
 	end
 	self.browserMenuWidget:setItems(items)
 	self.browserMenuWidget:reLayout()
@@ -619,7 +608,6 @@ function radioBrowserMenu(self)
 	self.browserMenuWidget = menu
 	window:addListener(EVENT_WINDOW_POP, function()
 		self.browserMenuWidget = nil
-		self.forceHttpCheckbox = nil
 	end)
 	-- Populate the browser before showing its window. Stock Jive menus can
 	-- otherwise display an empty first frame while the directory activates.
@@ -646,6 +634,7 @@ function menu(self)
 		self.menuWidget = nil
 	end)
 	self:tieAndShowWindow(window)
+	self.httpsProxyStatus:check(false)
 end
 
 

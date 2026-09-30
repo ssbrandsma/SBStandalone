@@ -19,7 +19,7 @@ Adding a future `My Stations` source requires one root item and its own loader; 
 `RadioFeedsClient` starts at:
 
 ```text
-http://www.radiofeeds.co.uk/MyPicks/network.opml?username=forusewithstandalone
+http://www.radiofeeds.co.uk/MyPicks/menu.opml?username=forusewithstandalone
 ```
 
 Every OPML request is asynchronous and sends:
@@ -36,11 +36,11 @@ The browser renders `type="link"` recursively using the exact URL from RadioFeed
 
 ## Stations and playback
 
-`type="audio"` maps to the existing station model with `source="radiofeeds"`, name, URL, numeric bitrate, icon and a stable local identifier. M3U and PLS URLs are fetched asynchronously with a 64 KiB limit and resolved to their first HTTP stream before invoking the existing `StreamPlayer`. Redirect handling, decoder selection, ICY metadata, stop, volume, reconnect behavior and Now Playing remain shared.
+`type="audio"` maps to the existing station model with `source="radiofeeds"`, name, URL, numeric bitrate, icon and a stable local identifier. M3U and PLS URLs are fetched asynchronously with a 64 KiB limit and resolved to their first HTTP or HTTPS stream before invoking the existing `StreamPlayer`. HTTPS transport uses local `sbproxy`; redirect handling, decoder selection, ICY metadata, stop, volume, reconnect behavior and Now Playing remain shared.
 
 Presets save the resolved stream and retain `playlistUrl` as provenance. No Radio Browser fields or behavior were removed.
 
-HTTP icons use the existing logo cache. RadioFeeds HTTPS icons deliberately fall back to generic artwork because this firmware cannot fetch them reliably; they are not sent to the bootstrap artwork bridge. Track-artwork lookup is also skipped for RadioFeeds because that existing optional feature uses the bridge for HTTPS results. Artwork failure never blocks playback.
+HTTP icons use the existing logo cache. HTTPS icons and track artwork pass through local `sbproxy` using the same asynchronous Jive HTTP stack. Artwork failure never blocks playback and does not require the bootstrap server at runtime.
 
 ## Runtime dependencies
 

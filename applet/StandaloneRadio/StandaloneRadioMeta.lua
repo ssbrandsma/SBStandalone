@@ -17,14 +17,14 @@ end
 
 
 function defaultSettings(self)
-	return { artworkBaseUrl = "http://49.12.198.91:9000/artwork", forceHttp = false }
+	return {}
 end
 
 
 function upgradeSettings(self, settings)
 	settings = settings or {}
-	settings.artworkBaseUrl = settings.artworkBaseUrl or "http://49.12.198.91:9000/artwork"
-	if settings.forceHttp == nil then settings.forceHttp = false end
+	settings.artworkBaseUrl = nil
+	settings.forceHttp = nil
 	return settings
 end
 

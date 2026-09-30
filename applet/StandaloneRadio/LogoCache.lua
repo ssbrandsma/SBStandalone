@@ -4,6 +4,10 @@ local lfs = require("lfs")
 local string = require("string")
 
 local Process = require("jive.net.Process")
+local RequestHttp = require("jive.net.RequestHttp")
+local Resolver = require("applets.StandaloneRadio.Resolver")
+local SocketHttp = require("jive.net.SocketHttp")
+local UrlTransport = require("applets.StandaloneRadio.UrlTransport")
 
 local jnt = jnt
 
@@ -91,7 +95,8 @@ function new(options)
 		applet = options.applet,
 		log = options.log,
 		active = {},
-		baseUrl = options.baseUrl or "http://49.12.198.91:9000/artwork",
+		resolver = Resolver.new({ log = options.log }),
+		httpsProxyStatus = options.httpsProxyStatus,
 	}, LogoCache)
 end
 
@@ -152,6 +157,62 @@ function LogoCache:_finishDownload(station, tempPath, callback)
 end
 
 
+function LogoCache:_download(station, uuid, url, tempPath, callback)
+	local target, targetErr = UrlTransport.forRequest(url, self.log)
+	if not target then
+		self.active[uuid] = nil
+		self.log:warn("StandaloneRadio: favicon transport failed: ", tostring(targetErr))
+		callback(nil)
+		return
+	end
+	self.resolver:resolve(target.host, function(ip)
+		if not ip then
+			self.active[uuid] = nil
+			self.log:warn("StandaloneRadio: favicon DNS failed")
+			callback(nil)
+			return
+		end
+		local request
+		local done = false
+		request = RequestHttp(function(body, err)
+			if done then return end
+			if body == nil and not err then return end
+			done = true
+			self.active[uuid] = nil
+			if err or type(body) ~= "string" or #body == 0 or #body > MAX_BYTES then
+				if err and target.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(url) end
+				self.log:warn("StandaloneRadio: favicon download failed ", tostring(err or "invalid size"))
+				callback(nil)
+				return
+			end
+			local status = request:t_getResponseStatus()
+			if status and (status < 200 or status >= 300) then
+				self.log:warn("StandaloneRadio: favicon HTTP ", tostring(status))
+				callback(nil)
+				return
+			end
+			local file = io.open(tempPath, "wb")
+			if not file then callback(nil); return end
+			file:write(body)
+			file:close()
+			self:_finishDownload(station, tempPath, callback)
+		end, "GET", target.path, { headers = {
+			Host = target.hostHeader, Accept = "image/png,image/jpeg,*/*", Connection = "close",
+		} })
+		local socket = SocketHttp(jnt, ip, target.port, "StandaloneRadioLogo")
+		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.0" } end
+		self.http = socket
+		local ok, fetchErr = pcall(function() socket:fetch(request) end)
+		if not ok then
+			self.active[uuid] = nil
+			if target.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(url) end
+			self.log:warn("StandaloneRadio: favicon request failed ", tostring(fetchErr))
+			callback(nil)
+		end
+	end)
+end
+
+
 function LogoCache:ensure(station, callback)
 	callback = callback or function() end
 	if not station or (station.source ~= "radiobrowser" and station.source ~= "radiofeeds") then
@@ -201,44 +262,6 @@ function LogoCache:ensure(station, callback)
 	local tempPath = CACHE_DIR .. "/" .. uuid .. ".tmp"
 	os.remove(tempPath)
 	self.log:info("StandaloneRadio: downloading logo ", uuid)
-	if string.match(string.lower(favicon), "^https://") then
-		if station.source == "radiofeeds" then
-			self.log:warn("StandaloneRadio: RadioFeeds HTTPS logo unsupported; using fallback")
-			callback(nil)
-			return
-		end
-		local url = self.baseUrl .. "?type=station&stationuuid=" .. uuid
-		self.log:info("StandaloneRadio: logo route=bootstrap-bridge url=", url)
-		local command = "wget -q -T 20 -O - " .. shellQuote(url) .. " 2>/dev/null | dd of=" .. shellQuote(tempPath) .. " bs=1024 count=513 2>/dev/null"
-		Process(jnt, command):read(function(chunk, err)
-			if chunk then return end
-			self.active[uuid] = nil
-			if err then os.remove(tempPath); callback(nil); return end
-			self:_finishDownload(station, tempPath, callback)
-		end)
-		return
-	end
-	self.log:info("StandaloneRadio: logo route=direct-http url=", favicon)
-	local command = "wget -q -T 20 --header=" .. shellQuote("Connection: close") .. " -U StandaloneRadio/0.2 -O - " .. shellQuote(favicon) ..
-		" 2>/dev/null | dd of=" .. shellQuote(tempPath) .. " bs=1024 count=513 2>/dev/null"
-	local output = ""
-	Process(jnt, command):read(function(chunk, err)
-		if chunk then
-			output = output .. chunk
-			return
-		end
-
-		self.active[uuid] = nil
-		self.log:info("StandaloneRadio: logo direct-http completed uuid=", uuid, " error=", tostring(err))
-		if err then
-			os.remove(tempPath)
-			self.log:warn("StandaloneRadio: favicon download failed ", tostring(err))
-			callback(nil)
-			return
-		end
-		if output ~= "" then
-			self.log:warn("StandaloneRadio: favicon download output ", output)
-		end
-		self:_finishDownload(station, tempPath, callback)
-	end)
+	self.log:info("StandaloneRadio: logo route=async-http url=", UrlTransport.redact(favicon))
+	self:_download(station, uuid, favicon, tempPath, callback)
 end
