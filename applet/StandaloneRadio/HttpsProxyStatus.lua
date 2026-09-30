@@ -41,8 +41,12 @@ function HttpsProxyStatus:check(force)
 		if done or (body == nil and not err) then return end
 		done = true
 		local status = request:t_getResponseStatus()
-		local healthy = not err and status == 200 and type(body) == "string"
+		-- Stock SqueezePlay does not consistently expose the numeric response
+		-- status here. The local proxy's health marker is the authoritative check.
+		local healthy = type(body) == "string"
 			and string.find(body, "status: OK", 1, true) ~= nil
+		self.log:info("StandaloneRadio: HTTPS proxy health status=", tostring(status),
+			" error=", tostring(err))
 		self:_finish(healthy, err or (healthy and nil or "invalid health response"))
 	end, "GET", "/health", { headers = { Host = HOST .. ":" .. tostring(PORT), Connection = "close" } })
 	local socket = SocketHttp(jnt, HOST, PORT, "StandaloneRadioHttpsProxyHealth")

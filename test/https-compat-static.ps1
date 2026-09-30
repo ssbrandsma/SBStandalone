@@ -18,6 +18,9 @@ Require-Text 'scripts/build-applet-package.ps1' '"UrlTransport\.lua"' 'UrlTransp
 Require-Text 'scripts/build-applet-package.ps1' '"HttpsProxyStatus\.lua"' 'HttpsProxyStatus is missing from the package'
 Require-Text 'applet/StandaloneRadio/StandaloneRadioApplet.lua' 'httpsProxyStatus:check\(false\)' 'Menu does not check HTTPS proxy health'
 Require-Text 'applet/StandaloneRadio/HttpsProxyStatus.lua' '"/health"' 'HTTPS proxy health endpoint is missing'
+Require-Text 'applet/StandaloneRadio/HttpsProxyStatus.lua' 'string\.find\(body, "status: OK"' 'HTTPS proxy health marker is not checked'
+$proxyStatus = Get-Content (Join-Path $root 'applet/StandaloneRadio/HttpsProxyStatus.lua') -Raw
+if ($proxyStatus -match 'status == 200') { throw 'HTTPS proxy detection still depends on unreliable SqueezePlay status codes' }
 
 $networkFiles = @(
 	'applet/StandaloneRadio/LogoCache.lua',
