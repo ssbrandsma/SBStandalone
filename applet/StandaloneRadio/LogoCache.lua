@@ -1,4 +1,4 @@
-local io, os, setmetatable, tonumber, tostring, type = io, os, setmetatable, tonumber, tostring, type
+local io, os, pcall, setmetatable, tonumber, tostring, type = io, os, pcall, setmetatable, tonumber, tostring, type
 
 local lfs = require("lfs")
 local string = require("string")

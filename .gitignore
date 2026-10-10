@@ -4,3 +4,4 @@ dist/*
 
 # Local device diagnostics
 logs/
+downloads/

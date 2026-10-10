@@ -68,6 +68,7 @@ function new(options)
 		lastStation = options.lastStation,
 		retryIndex = 1,
 		generation = 0,
+		stationGeneration = 0,
 		state = "STOPPED",
 		watchdogStalls = 0,
 		audioUnderrunRecovered = false,
@@ -91,7 +92,7 @@ end
 
 function StreamPlayer:_notifyState(station, state, show)
 	self.state = state
-	self.callbacks.onState(station, state, show)
+	self.callbacks.onState(station, state, show, self.stationGeneration)
 end
 
 
@@ -313,6 +314,7 @@ function StreamPlayer:_handleMetadata(data)
 	if title == "" then
 		if self.currentMetadata ~= nil then
 			self.currentMetadata = nil
+			self.callbacks.onMetadata(nil, self.desiredStation, self.stationGeneration)
 			self:_notifyState(self.desiredStation, "PLAYING", false)
 		end
 		return
@@ -320,7 +322,7 @@ function StreamPlayer:_handleMetadata(data)
 
 	if title ~= self.currentMetadata then
 		self.currentMetadata = title
-		self.callbacks.onMetadata(title)
+		self.callbacks.onMetadata(title, self.desiredStation, self.stationGeneration)
 		self.log:info("StandaloneRadio: StreamTitle=", title)
 	end
 end
@@ -521,7 +523,7 @@ function StreamPlayer:_installHooks(playback)
 			self:_powerKeepaliveTick()
 			self.retryIndex = 1
 			self:_notifyState(self.desiredStation, "PLAYING", false)
-			self.callbacks.onConnected(self.desiredStation)
+			self.callbacks.onConnected(self.desiredStation, self.stationGeneration)
 		end
 	end
 
@@ -531,10 +533,12 @@ function StreamPlayer:_installHooks(playback)
 		if type(packet) == "table" and packet.opcode == "META" then
 			self:_handleMetadata(packet.data)
 		end
-		-- Standalone playback has no LMS command loop to consume status events.
-		-- Forwarding them to a stale server blocks SqueezePlay's shared network
-		-- thread and can starve the radio stream until the output is paused.
-		if self.ownsPlayback then
+		-- Keep the loopback LMS session alive while standalone audio owns the
+		-- decoder. STAT carries both the periodic SlimProto heartbeat and benign
+		-- playback state updates; StandaloneBase consumes these locally. Other
+		-- packets remain suppressed so an unrelated LMS cannot control this
+		-- independently managed stream.
+		if self.ownsPlayback and not (type(packet) == "table" and packet.opcode == "STAT") then
 			return true
 		end
 		return originalSend(proto, packet, force)
@@ -564,10 +568,11 @@ function StreamPlayer:_begin(station, reconnect)
 	self:_resetWatchdog()
 	self:_resetAudioRecovery()
 	if not reconnect then
+		self.stationGeneration = self.stationGeneration + 1
 		self.retryIndex = 1
 		self.redirectCount = 0
 		self.lastStation = station
-		self.callbacks.onSelected(station)
+		self.callbacks.onSelected(station, self.stationGeneration)
 	end
 
 	local playback, player, err = localPlayback()
@@ -579,11 +584,9 @@ function StreamPlayer:_begin(station, reconnect)
 		return false
 	end
 	self:_installHooks(playback)
-	-- Drop queued writes to a previous LMS/bootstrap connection before the
-	-- standalone stream starts using the same network event loop.
-	if playback.slimproto then
-		playback.slimproto:disconnect()
-	end
+	-- Do not disconnect SlimProto here. StandaloneBase is a loopback-only LMS;
+	-- retaining its session preserves the current player identity and lets the
+	-- stock Home/Now Playing UI continue to receive server state.
 	self:_notifyState(station, "RESOLVING", true)
 
 	self:_resolveStreamRedirect(station, generation, function(playStation)

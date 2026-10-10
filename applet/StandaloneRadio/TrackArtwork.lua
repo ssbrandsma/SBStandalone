@@ -6,6 +6,7 @@ local RequestHttp = require("jive.net.RequestHttp")
 local Resolver = require("applets.StandaloneRadio.Resolver")
 local SocketHttp = require("jive.net.SocketHttp")
 local UrlTransport = require("applets.StandaloneRadio.UrlTransport")
+local StreamMetadata = require("applets.StandaloneRadio.StreamMetadata")
 
 local okJson, json = pcall(require, "json")
 if not okJson then json = nil end
@@ -33,20 +34,9 @@ local function encodePathSegment(value)
 end
 
 
-local function parseStreamTitle(streamTitle)
-	local artist, title = string.match(streamTitle, "^(.-)%s%-%s(.+)$")
-	artist = trim(artist)
-	title = trim(title)
-	if artist == "" or title == "" then
-		return nil
-	end
-	return artist, title
-end
-
-
 local function httpPictureUrl(value)
 	local url = trim(value)
-	if not string.match(url, "^https?://[%w%.%-]+[:%d]*/?.*") then
+	if not UrlTransport.artworkUrl(url) then
 		return nil
 	end
 	return url
@@ -59,6 +49,7 @@ function new(options)
 		nowPlaying = options.nowPlaying,
 		resolver = Resolver.new({ log = options.log }),
 		httpsProxyStatus = options.httpsProxyStatus,
+		onArtworkUrl = options.onArtworkUrl,
 		generation = 0,
 	}, TrackArtwork)
 end
@@ -87,12 +78,12 @@ function TrackArtwork:reset(station)
 end
 
 
-function TrackArtwork:lookup(station, streamTitle)
+function TrackArtwork:lookup(station, streamTitle, stationGeneration)
 	if not station or not json then
 		return
 	end
 
-	local artist, title = parseStreamTitle(streamTitle)
+	local title, artist = StreamMetadata.parse(streamTitle)
 	if not artist then
 		if self.currentKey ~= false then
 			self:reset(station)
@@ -148,6 +139,9 @@ function TrackArtwork:lookup(station, streamTitle)
 			end
 
 			self.log:info("StandaloneRadio: track artwork API picture=", UrlTransport.redact(picture))
+			if self.onArtworkUrl then
+				self.onArtworkUrl(station, streamTitle, picture, stationGeneration)
+			end
 			self:_downloadPicture(station, key, generation, picture)
 		end, "GET", path, { headers = {
 			["Host"] = API_HOST,

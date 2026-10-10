@@ -19,6 +19,16 @@ equal(transport.transportUrl("https://"), "https://")
 equal(transport.transportUrl(""), "")
 assert(transport.transportUrl(nil) == nil)
 
+equal(transport.artworkUrl("http://example.com/a%20b.jpg?q=one%20two"),
+	"http://example.com/a%20b.jpg?q=one%20two")
+equal(transport.artworkUrl("https://example.com/a%20b.jpg?q=one%20two"),
+	"http://127.0.0.1:8765/https/example.com/a%20b.jpg?q=one%20two")
+equal(transport.artworkUrl("http://127.0.0.1:8765/https/example.com/a.jpg"),
+	"http://127.0.0.1:8765/https/example.com/a.jpg")
+assert(transport.artworkUrl("ftp://example.com/a.jpg") == nil)
+assert(transport.artworkUrl("http://user:secret@example.com/a.jpg") == nil)
+assert(transport.artworkUrl("not a url") == nil)
+
 local original = { url = "https://station.example.com/live.mp3" }
 equal(transport.transportUrl(original.url), "http://127.0.0.1:8765/https/station.example.com/live.mp3")
 equal(original.url, "https://station.example.com/live.mp3")

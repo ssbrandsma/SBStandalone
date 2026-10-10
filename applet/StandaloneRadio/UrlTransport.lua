@@ -5,6 +5,7 @@ local string = require("string")
 local UrlTransport = {}
 
 local PROXY_PREFIX = "http://127.0.0.1:8765/https/"
+local MAX_ARTWORK_URL_BYTES = 383
 
 local function trim(value)
 	return tostring(value or ""):gsub("^%s*(.-)%s*$", "%1")
@@ -18,6 +19,7 @@ end
 
 function UrlTransport.redact(url)
 	if type(url) ~= "string" then return tostring(url) end
+	url = string.gsub(url, "^(https?://)[^/@]+@", "%1[redacted]@")
 	return (string.gsub(url, "([%?#]).*$", "%1[redacted]"))
 end
 
@@ -33,6 +35,22 @@ function UrlTransport.transportUrl(url, log)
 	if not string.match(string.lower(url), "^https://[%w%.%-]+[:%d]*[/#%?]?.*$") then return url end
 	if log then log:info("StandaloneRadio: HTTPS via sbproxy: ", UrlTransport.redact(url)) end
 	return PROXY_PREFIX .. string.sub(url, 9)
+end
+
+-- Return a URL suitable for the stock playerstatus artwork field. This is
+-- deliberately stricter than transportUrl(), which preserves unsupported
+-- inputs for callers that only want best-effort translation.
+function UrlTransport.artworkUrl(url, log)
+	if type(url) ~= "string" then return nil end
+	url = trim(url)
+	if url == "" or #url > MAX_ARTWORK_URL_BYTES or string.find(url, "[%s%z]") then return nil end
+	local scheme, authority = string.match(url, "^(https?)://([^/%?#]+)")
+	if not scheme or not authority or string.find(authority, "@", 1, true) then return nil end
+	if not string.match(authority, "^[%w%.%-]+:?%d*$") then return nil end
+	local translated = UrlTransport.transportUrl(url, log)
+	if type(translated) ~= "string" or not string.match(translated, "^http://[^/]+/?.*$")
+		or #translated > MAX_ARTWORK_URL_BYTES then return nil end
+	return translated
 end
 
 function UrlTransport.parseHttp(url)

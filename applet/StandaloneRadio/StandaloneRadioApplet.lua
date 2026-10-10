@@ -16,6 +16,7 @@ local Timer = require("jive.ui.Timer")
 local Window = require("jive.ui.Window")
 
 local LogoCache = require("applets.StandaloneRadio.LogoCache")
+local NativeNowPlaying = require("applets.StandaloneRadio.NativeNowPlaying")
 local HttpsProxyStatus = require("applets.StandaloneRadio.HttpsProxyStatus")
 local Countries = require("applets.StandaloneRadio.Countries")
 local NowPlaying = require("applets.StandaloneRadio.NowPlaying")
@@ -24,9 +25,11 @@ local RadioBrowser = require("applets.StandaloneRadio.RadioBrowser")
 local RadioFeedsClient = require("applets.StandaloneRadio.RadioFeedsClient")
 local Stations = require("applets.StandaloneRadio.Stations")
 local StreamPlayer = require("applets.StandaloneRadio.StreamPlayer")
+local StandaloneBaseNowPlaying = require("applets.StandaloneRadio.StandaloneBaseNowPlaying")
 local TrackArtwork = require("applets.StandaloneRadio.TrackArtwork")
 
 local log = require("jive.utils.log").logger("StandaloneRadio")
+local appletManager = appletManager
 
 local AUTOTEST_MARKER = "/tmp/standalone-radio-autotest"
 local DEFAULT_COUNTRY_CODE = "NL"
@@ -85,27 +88,63 @@ function _ensureComponents(self)
 		log = log,
 		nowPlaying = self.nowPlaying,
 		httpsProxyStatus = self.httpsProxyStatus,
+		onArtworkUrl = function(station, streamTitle, url, stationGeneration)
+			if self.baseNowPlaying then
+				self.baseNowPlaying:updateTrackArtwork(url, station, stationGeneration, streamTitle)
+			end
+		end,
+	})
+	self.baseNowPlaying = StandaloneBaseNowPlaying.new({
+		log = log,
+		debug = settings.nowPlayingDebug == true,
+		isPlaybackOwner = function()
+			return self.streamPlayer and self.streamPlayer.ownsPlayback == true
+		end,
+		onPublished = function()
+			-- A source can start after the local LMS bootstrap completed while
+			-- stopped. Ensure the current Player is staged so it subscribes to
+			-- playerstatus before the stock Now Playing menu checks playlist size.
+			local player = appletManager:callService("getCurrentPlayer")
+			if player and player.onStage then
+				player:onStage()
+			end
+		end,
+	})
+	self.nativeNowPlaying = NativeNowPlaying.new({
+		appletManager = appletManager,
+		framework = Framework,
+		timerFactory = function(delay, callback, once) return Timer(delay, callback, once) end,
+		transition = Window.transitionPushLeft,
+		log = log,
+		getGeneration = function()
+			return self.streamPlayer and self.streamPlayer.stationGeneration or nil
+		end,
 	})
 	self.streamPlayer = StreamPlayer.new({
 		log = log,
 		lastStation = self.lastStation,
 		httpsProxyStatus = self.httpsProxyStatus,
 		callbacks = {
-			onState = function(station, state, show)
-				self.nowPlaying:update(station, state, show)
+			onState = function(station, state, show, stationGeneration)
+				-- Maintain the legacy artwork model without navigating to its
+				-- window. Native Logitech Now Playing is now the primary UI.
+				self.nowPlaying:update(station, state, false)
+				self.baseNowPlaying:updateState(state, station, stationGeneration)
 				self:_refreshMenu()
 			end,
-			onMetadata = function(title)
+			onMetadata = function(title, station, stationGeneration)
 				self.nowPlaying:setMetadata(title)
-				local station = self.streamPlayer:getCurrentStation()
+				self.baseNowPlaying:updateMetadata(title, station, stationGeneration)
 				if not station or station.source ~= "radiofeeds" then
-					self.trackArtwork:lookup(station, title)
+					self.trackArtwork:lookup(station, title, stationGeneration)
 				end
 			end,
-				onSelected = function(station)
+				onSelected = function(station, stationGeneration)
 					self.lastStation = station
 					self.nowPlaying:selectStation(station)
 					self.trackArtwork:reset(station)
+					self.baseNowPlaying:activate(station, stationGeneration)
+					self.nativeNowPlaying:request(stationGeneration)
 				settings.lastStationId = station.id
 				if station.preset then
 					settings.lastPreset = station.preset
@@ -113,8 +152,9 @@ function _ensureComponents(self)
 				self:storeSettings()
 				self:_refreshMenu()
 			end,
-			onConnected = function(station)
+			onConnected = function(station, stationGeneration)
 				self.lastStation = station
+				self.baseNowPlaying:updateStation(station, stationGeneration)
 				self:_refreshMenu()
 			end,
 		},
@@ -131,6 +171,7 @@ end
 -- The applet is deliberately retained so its global hardware listeners stay
 -- active from boot until SqueezePlay exits.
 function free(self)
+	if self.nativeNowPlaying then self.nativeNowPlaying:shutdown() end
 	return false
 end
 
@@ -228,22 +269,9 @@ function _refreshMenu(self)
 
 	local items = {
 		{
-			text = self:string("STANDALONE_RADIO_NOW_PLAYING"),
-			sound = "WINDOW_OPEN",
-			weight = 1,
-			callback = function()
-				local station = self.streamPlayer:getCurrentStation() or self.lastStation
-				if station then
-					self.nowPlaying:show(station)
-				else
-					self:_showPopup(self:string("STANDALONE_RADIO_NO_STATION_SELECTED"))
-				end
-			end,
-		},
-		{
 			text = self:string("STANDALONE_RADIO_BROWSER"),
 			sound = "SELECT",
-			weight = 2,
+			weight = 1,
 			callback = function()
 				self:radioBrowserMenu()
 			end,
@@ -251,7 +279,7 @@ function _refreshMenu(self)
 		{
 			text = self:string("STANDALONE_RADIO_RADIOFEEDS"),
 			sound = "SELECT",
-			weight = 3,
+			weight = 2,
 			callback = function()
 				self:radioFeedsMenu(self.radioFeeds:rootUrl(), self:string("STANDALONE_RADIO_RADIOFEEDS"))
 			end,

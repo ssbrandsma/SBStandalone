@@ -47,6 +47,7 @@ $requiredRootFiles = @(
 	"Countries.lua",
 	"HttpsProxyStatus.lua",
 	"LogoCache.lua",
+	"NativeNowPlaying.lua",
 	"NowPlaying.lua",
 	"PresetStore.lua",
 	"RadioBrowser.lua",
@@ -55,7 +56,9 @@ $requiredRootFiles = @(
 	"Resolver.lua",
 	"StandaloneRadioApplet.lua",
 	"StandaloneRadioMeta.lua",
+	"StandaloneBaseNowPlaying.lua",
 	"Stations.lua",
+	"StreamMetadata.lua",
 	"StreamPlayer.lua",
 	"TrackArtwork.lua",
 	"UrlTransport.lua",
@@ -156,7 +159,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Fix HTTPS Proxy health detection on stock SqueezePlay.")
+	$xml = $xml.Replace("Applet Installer package release $version.", "Publish radio state and ICY metadata to StandaloneBase Now Playing API.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()
