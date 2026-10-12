@@ -11,7 +11,7 @@ Require-Text 'applet/StandaloneRadio/RadioFeedsClient.lua' 'USER_AGENT = "Lyrion
 Require-Text 'applet/StandaloneRadio/RadioFeedsClient.lua' 'application/xml,text/xml,\*/\*' 'RadioFeeds XML Accept header changed'
 Require-Text 'applet/StandaloneRadio/RadioFeedsClient.lua' '\^https\?://' 'HTTPS playlist entries are not accepted'
 Require-Text 'applet/StandaloneRadio/LogoCache.lua' 'UrlTransport\.forRequest\(url, self\.log\)' 'Logos do not use UrlTransport'
-Require-Text 'applet/StandaloneRadio/TrackArtwork.lua' 'UrlTransport\.forRequest\(picture, self\.log\)' 'Track artwork does not use UrlTransport'
+Require-Text 'applet/StandaloneRadio/TrackArtwork.lua' 'UrlTransport\.artworkUrl\(url\)' 'Track artwork URLs are not validated'
 Require-Text 'applet/StandaloneRadio/StreamPlayer.lua' 'transportStation\(playStation, self\.log\)' 'Playback does not translate at its boundary'
 Require-Text 'applet/StandaloneRadio/PresetStore.lua' 'url = station\.url' 'Presets do not retain the station URL'
 Require-Text 'scripts/build-applet-package.ps1' '"UrlTransport\.lua"' 'UrlTransport is missing from the package'

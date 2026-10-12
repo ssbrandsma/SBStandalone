@@ -14,7 +14,7 @@ Radio (`baby`) on firmware 7.7.3 r16676 and changes only the installed applet.
 2. Record the ZIP SHA-256 and retain the currently installed applet directory.
    Follow `DEPLOYMENT.md`; do not write firmware or UBIFS partitions. Do not
    overwrite the backup until validation is complete.
-3. Install the generated `dist/StandaloneRadio-0.9.1.zip` using the existing
+3. Install the generated ZIP matching the current `VERSION` using the existing
    applet installation workflow and restart SqueezePlay only when that workflow
    requires it. Do not restart or replace StandaloneBase for the initial test.
 4. Roll back by restoring the saved StandaloneRadio applet directory using the

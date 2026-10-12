@@ -1,4 +1,4 @@
-local ipairs, os, tostring = ipairs, os, tostring
+local ipairs, os, pairs, tostring = ipairs, os, pairs, tostring
 
 local oo = require("loop.simple")
 local table = require("table")
@@ -19,7 +19,6 @@ local LogoCache = require("applets.StandaloneRadio.LogoCache")
 local NativeNowPlaying = require("applets.StandaloneRadio.NativeNowPlaying")
 local HttpsProxyStatus = require("applets.StandaloneRadio.HttpsProxyStatus")
 local Countries = require("applets.StandaloneRadio.Countries")
-local NowPlaying = require("applets.StandaloneRadio.NowPlaying")
 local PresetStore = require("applets.StandaloneRadio.PresetStore")
 local RadioBrowser = require("applets.StandaloneRadio.RadioBrowser")
 local RadioFeedsClient = require("applets.StandaloneRadio.RadioFeedsClient")
@@ -27,6 +26,7 @@ local Stations = require("applets.StandaloneRadio.Stations")
 local StreamPlayer = require("applets.StandaloneRadio.StreamPlayer")
 local StandaloneBaseNowPlaying = require("applets.StandaloneRadio.StandaloneBaseNowPlaying")
 local TrackArtwork = require("applets.StandaloneRadio.TrackArtwork")
+local UserStations = require("applets.StandaloneRadio.UserStations")
 
 local log = require("jive.utils.log").logger("StandaloneRadio")
 local appletManager = appletManager
@@ -64,6 +64,7 @@ function _ensureComponents(self)
 	self.radioBrowser = RadioBrowser.new({
 		log = log,
 	})
+	self.userStations = UserStations.new({ log = log })
 	self.httpsProxyStatus = HttpsProxyStatus.new({
 		log = log,
 		onUnavailable = function()
@@ -76,18 +77,9 @@ function _ensureComponents(self)
 		httpsProxyStatus = self.httpsProxyStatus,
 	})
 	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1)
-	self.nowPlaying = NowPlaying.new(self, log, {
-		onClose = function()
-			if self.streamPlayer then
-				self.streamPlayer:stopConnecting()
-			end
-		end,
-	})
 	self.radioFeeds = RadioFeedsClient.new({ log = log, httpsProxyStatus = self.httpsProxyStatus })
 	self.trackArtwork = TrackArtwork.new({
 		log = log,
-		nowPlaying = self.nowPlaying,
-		httpsProxyStatus = self.httpsProxyStatus,
 		onArtworkUrl = function(station, streamTitle, url, stationGeneration)
 			if self.baseNowPlaying then
 				self.baseNowPlaying:updateTrackArtwork(url, station, stationGeneration, streamTitle)
@@ -126,25 +118,20 @@ function _ensureComponents(self)
 		httpsProxyStatus = self.httpsProxyStatus,
 		callbacks = {
 			onState = function(station, state, show, stationGeneration)
-				-- Maintain the legacy artwork model without navigating to its
-				-- window. Native Logitech Now Playing is now the primary UI.
-				self.nowPlaying:update(station, state, false)
 				self.baseNowPlaying:updateState(state, station, stationGeneration)
 				self:_refreshMenu()
 			end,
 			onMetadata = function(title, station, stationGeneration)
-				self.nowPlaying:setMetadata(title)
 				self.baseNowPlaying:updateMetadata(title, station, stationGeneration)
 				if not station or station.source ~= "radiofeeds" then
 					self.trackArtwork:lookup(station, title, stationGeneration)
 				end
 			end,
-				onSelected = function(station, stationGeneration)
-					self.lastStation = station
-					self.nowPlaying:selectStation(station)
-					self.trackArtwork:reset(station)
-					self.baseNowPlaying:activate(station, stationGeneration)
-					self.nativeNowPlaying:request(stationGeneration)
+			onSelected = function(station, stationGeneration)
+				self.lastStation = station
+				self.trackArtwork:reset(station)
+				self.baseNowPlaying:activate(station, stationGeneration)
+				self.nativeNowPlaying:request(stationGeneration)
 				settings.lastStationId = station.id
 				if station.preset then
 					settings.lastPreset = station.preset
@@ -204,6 +191,19 @@ function _playStation(self, station)
 	if not station then
 		return
 	end
+	if station.source == "user" and station.preset and self.userStations then
+		local current, err = self.userStations:resolve(station.id)
+		if not current then
+			log:warn("StandaloneRadio: saved user station unavailable id=", tostring(station.id),
+				" reason=", tostring(err))
+			self:_showPopup(self:string("STANDALONE_RADIO_USER_STATION_UNAVAILABLE"), 3500)
+			return
+		end
+		local resolved = {}
+		for key, value in pairs(current) do resolved[key] = value end
+		resolved.preset = station.preset
+		station = resolved
+	end
 
 	if station.source == "radiofeeds" and string.match(string.lower(station.url or ""), "%.m3u[%?%#]?")
 		or station.source == "radiofeeds" and string.match(string.lower(station.url or ""), "%.pls[%?%#]?") then
@@ -224,7 +224,6 @@ function _playStation(self, station)
 		self.logoCache:ensure(station, function(path)
 			if path then
 				self.presetStore:updateLogo(station)
-				self.nowPlaying:updateLogo(station)
 			end
 		end)
 	end
@@ -282,6 +281,14 @@ function _refreshMenu(self)
 			weight = 2,
 			callback = function()
 				self:radioFeedsMenu(self.radioFeeds:rootUrl(), self:string("STANDALONE_RADIO_RADIOFEEDS"))
+			end,
+		},
+		{
+			text = self:string("STANDALONE_RADIO_USER_STATIONS"),
+			sound = "SELECT",
+			weight = 3,
+			callback = function()
+				self:userStationsMenu()
 			end,
 		},
 	}
@@ -391,6 +398,46 @@ function _showStationList(self, title, stations)
 	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
 	window:addWidget(menu)
 	menu:setItems(self:_stationItems(stations))
+	self:tieAndShowWindow(window)
+end
+
+
+function _renderUserStations(self)
+	if not self.userStationsMenuWidget then return end
+	local stations, err = self.userStations:reload()
+	local items = {}
+	for index, station in ipairs(stations or {}) do
+		local selected = station
+		items[#items + 1] = {
+			text = Stations.displayName(selected, self), sound = "SELECT", weight = index,
+			callback = function()
+				_logInfo("selected user station id=", selected.id)
+				self:_playStation(selected)
+			end,
+		}
+	end
+	if #items == 0 then
+		items[1] = {
+			text = self:string(err and "STANDALONE_RADIO_USER_STATIONS_UNAVAILABLE"
+				or "STANDALONE_RADIO_NO_USER_STATIONS"),
+			style = "item", weight = 0,
+		}
+	end
+	self.userStationsMenuWidget:setItems(items)
+	self.userStationsMenuWidget:reLayout()
+end
+
+
+function userStationsMenu(self)
+	if not self:_ensureComponents() then return end
+	local window = Window("text_list", self:string("STANDALONE_RADIO_USER_STATIONS"))
+	local menu = SimpleMenu("menu")
+	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
+	window:addWidget(menu)
+	self.userStationsMenuWidget = menu
+	window:addListener(EVENT_WINDOW_ACTIVE, function() self:_renderUserStations() end)
+	window:addListener(EVENT_WINDOW_POP, function() self.userStationsMenuWidget = nil end)
+	self:_renderUserStations()
 	self:tieAndShowWindow(window)
 end
 

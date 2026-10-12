@@ -48,7 +48,6 @@ $requiredRootFiles = @(
 	"HttpsProxyStatus.lua",
 	"LogoCache.lua",
 	"NativeNowPlaying.lua",
-	"NowPlaying.lua",
 	"PresetStore.lua",
 	"RadioBrowser.lua",
 	"RadioFeedsClient.lua",
@@ -61,6 +60,7 @@ $requiredRootFiles = @(
 	"StreamMetadata.lua",
 	"StreamPlayer.lua",
 	"TrackArtwork.lua",
+	"UserStations.lua",
 	"UrlTransport.lua",
 	"strings.txt"
 )
@@ -159,7 +159,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Publish radio state and ICY metadata to StandaloneBase Now Playing API.")
+	$xml = $xml.Replace("Applet Installer package release $version.", "Add user-defined stations managed by Standalone Base.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

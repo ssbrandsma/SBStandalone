@@ -3,14 +3,8 @@ $source = Get-Content -Raw (Join-Path $PSScriptRoot '..\applet\StandaloneRadio\S
 $stream = Get-Content -Raw (Join-Path $PSScriptRoot '..\applet\StandaloneRadio\StreamPlayer.lua')
 $native = Get-Content -Raw (Join-Path $PSScriptRoot '..\applet\StandaloneRadio\NativeNowPlaying.lua')
 
-if ($source -match 'self\.nowPlaying:show\(') {
-	throw 'legacy Now Playing window is still directly opened by the applet'
-}
-if ($source -match 'text\s*=\s*self:string\("STANDALONE_RADIO_NOW_PLAYING"\)') {
-	throw 'legacy Now Playing menu entry is still present'
-}
-if ($source -notmatch 'self\.nowPlaying:update\(station, state, false\)') {
-	throw 'state callbacks are not explicitly suppressing legacy navigation'
+if ($source -match 'StandaloneRadio\.NowPlaying|self\.nowPlaying|STANDALONE_RADIO_NOW_PLAYING') {
+	throw 'legacy NowPlaying integration is still referenced by the applet'
 }
 if ($stream -notmatch 'stationGeneration') {
 	throw 'StreamPlayer does not publish logical station generations'

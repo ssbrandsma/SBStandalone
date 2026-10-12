@@ -95,7 +95,7 @@ Device firmware: Logitech Squeezebox Radio `baby`, 7.7.3 r16676
 - Stock firmware has `libpng` and `libjpeg`, and stock ImageViewer loads absolute local image paths with `Surface:loadImage(file)`. StandaloneRadio therefore supports cached PNG/JPEG files and relies on the skin to scale them in the existing `Icon` widget.
 - BusyBox `wget` on firmware 7.7.3 supports HTTP and FTP only; it rejects HTTPS URLs with `not an http or ftp url`. HTTPS, SVG, ICO, empty, oversized, and corrupt favicons fall back to the packaged `images/radio.png` generic logo.
 - `LogoCache.lua` downloads favicons asynchronously through `jive.net.Process` after playback has started. Downloads are capped at roughly 512 KB and the cache is pruned to the newest 100 logo files with a simple oldest-file removal strategy.
-- `NowPlaying.lua` now selects artwork from the station object in this order: cached `logoPath`, packaged built-in `logo`, then generic fallback. This removes any conceptual link between preset number and artwork.
+- The former custom Now Playing window was removed; playback now uses the firmware's native Now Playing screen, populated through Standalone Base.
 
 ## Decision for milestone 2/3
 

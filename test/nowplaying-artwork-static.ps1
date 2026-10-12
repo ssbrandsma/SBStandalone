@@ -6,6 +6,9 @@ $client = Get-Content -Raw (Join-Path $PSScriptRoot '..\applet\StandaloneRadio\S
 if ($track -notmatch 'onArtworkUrl\(station, streamTitle, picture, stationGeneration\)') {
 	throw 'TrackArtwork does not expose its discovered original URL with stale-check context'
 }
+if ($track -match 'nowPlaying|_downloadPicture|standalone-radio-track-') {
+	throw 'TrackArtwork still contains the removed legacy artwork sink'
+}
 if ($applet -notmatch 'updateTrackArtwork\(url, station, stationGeneration, streamTitle\)') {
 	throw 'Applet does not forward discovered artwork to the Now Playing client'
 }

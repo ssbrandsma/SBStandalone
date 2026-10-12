@@ -8,7 +8,8 @@ The applet is designed for the stock Squeezebox Radio firmware and uses the radi
 
 - Plays stations saved to physical preset buttons, even from the Home screen.
 - Provides a `Standalone Radio` Home menu that opens the on-screen Radio Browser.
-- Shows a native-style Now Playing screen with the station name, local logo, connection state, and available song title metadata.
+- Opens the firmware's native Now Playing screen and publishes station, playback, metadata, and remote artwork through Standalone Base.
+- Reads user-defined stations managed by the Standalone Base web interface.
 - Uses the radio's configured network DNS server. No station IP addresses are hardcoded.
 - Treats Pause and Stop as Stop for live radio. Play restarts the last selected station.
 
@@ -46,7 +47,7 @@ $env:SQUEEZEBOX_SSH_PASSWORD = '<radio root password>'
 .\scripts\deploy.ps1 -HostName <radio-ip>
 ```
 
-The script creates `/usr/share/jive/applets/StandaloneRadio/`, copies the applet and local artwork, then restarts SqueezePlay. The screen can take a minute or two to recover after the restart while it reconnects to Wi-Fi.
+The script creates `/usr/share/jive/applets/StandaloneRadio/`, copies the applet and packaged artwork, then restarts SqueezePlay. The screen can take a minute or two to recover after the restart while it reconnects to Wi-Fi.
 
 5. When the Home screen returns, select `Standalone Radio` or press preset `1`. Audio should begin shortly after the `Resolving...` and `Connecting...` states.
 
@@ -128,6 +129,15 @@ Radio Browser stations may provide artwork through their `favicon` field. Standa
 
 Runtime artwork download accepts HTTP and, through local `sbproxy`, HTTPS PNG and JPEG images. Oversized, unsupported, or unreachable artwork falls back to the packaged generic radio icon; SVG and ICO remain unsupported.
 
+## User-Defined Stations
+
+Stations created in the Standalone Base web interface appear under `My Radio
+Stations`. The applet reloads `/mnt/sbdata/config/radio/stations.json` whenever
+that menu opens and uses the same player, presets, metadata, and native Now
+Playing integration as its other station sources. See
+[`docs/USER_DEFINED_STATIONS.md`](docs/USER_DEFINED_STATIONS.md) for the schema,
+reload behavior, and limitations.
+
 ## Assigning Presets
 
 To assign or replace a preset:
@@ -142,11 +152,19 @@ Preset assignments survive reboot. The former built-in Dutch presets are removed
 
 ## Now Playing And Metadata
 
-Selecting a station opens Now Playing immediately. It keeps the station logo and name visible and displays one of these statuses: `Resolving...`, `Connecting...`, `Playing`, `Stopped`, or `Connection failed`.
+Selecting a station requests the firmware's native Now Playing screen immediately. Standalone Radio publishes the station name, playback state, and metadata through Standalone Base's loopback API.
 
-The applet requests ICY metadata only through the stock stream engine. When a stream provides it, its `StreamTitle` replaces `Playing`; otherwise the screen simply stays on `Playing`. A `StreamTitle` log entry is metadata only; it does not affect audio.
+The applet requests ICY metadata only through the stock stream engine. When a stream provides it, its `StreamTitle` is published to native Now Playing. A `StreamTitle` log entry is metadata only; it does not affect audio.
 
-For `Artist - Title` metadata, StandaloneRadio optionally looks up current-track artwork through the Lyrion cloud API once per song change. Artwork is held only in memory for the current track; station artwork remains the fallback and no track-artwork cache is written to disk.
+For `Artist - Title` metadata, StandaloneRadio optionally looks up current-track artwork through the Lyrion cloud API once per song change. The validated remote URL is published through Standalone Base; no custom Now Playing window or local track-artwork cache is maintained.
+
+To validate and install an already-built distribution ZIP directly, use:
+
+```powershell
+.\deploy_dist.cmd .\dist\StandaloneRadio-0.9.3 root@<radio-ip> -p<password>
+```
+
+Use `--dry-run` to validate the package without connecting to the Radio.
 
 ## Update And Diagnose
 
@@ -192,4 +210,4 @@ For ICY-capable streams, it asks for metadata, reads the server's `icy-metaint` 
 
 The stock playback engine pauses audio after an output-buffer underrun and normally waits for LMS to send a resume command. StandaloneRadio checks for that paused state once per second and resumes audio locally once the encoded stream buffer has refilled. This avoids a temporary network hiccup leaving a healthy stream silent.
 
-See [research.md](research.md) for the firmware-specific investigation and [device-backups/README.md](device-backups/README.md) for the stock-file backup policy.
+See [research.md](research.md) for the firmware-specific investigation. Historical source states remain available through Git history.

@@ -200,7 +200,7 @@ function LogoCache:_download(station, uuid, url, tempPath, callback)
 			Host = target.hostHeader, Accept = "image/png,image/jpeg,*/*", Connection = "close",
 		} })
 		local socket = SocketHttp(jnt, ip, target.port, "StandaloneRadioLogo")
-		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.1" } end
+		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.3" } end
 		self.http = socket
 		local ok, fetchErr = pcall(function() socket:fetch(request) end)
 		if not ok then
@@ -213,13 +213,31 @@ function LogoCache:_download(station, uuid, url, tempPath, callback)
 end
 
 
-function LogoCache:ensure(station, callback)
-	callback = callback or function() end
-	if not station or (station.source ~= "radiobrowser" and station.source ~= "radiofeeds") then
+function LogoCache:_cacheLocal(station, tempPath, callback)
+	local file = io.open(station.localLogoPath, "rb")
+	if not file then callback(nil); return end
+	local body = file:read(MAX_BYTES + 1)
+	file:close()
+	if type(body) ~= "string" or #body == 0 or #body > MAX_BYTES then
+		self.log:warn("StandaloneRadio: local station logo is empty or too large id=", tostring(station.id))
 		callback(nil)
 		return
 	end
+	local output = io.open(tempPath, "wb")
+	if not output then callback(nil); return end
+	output:write(body)
+	output:close()
+	self:_finishDownload(station, tempPath, callback)
+end
 
+
+function LogoCache:ensure(station, callback)
+	callback = callback or function() end
+	if not station or (station.source ~= "radiobrowser" and station.source ~= "radiofeeds"
+		and station.source ~= "user") then
+		callback(nil)
+		return
+	end
 	local uuid = sanitize(station.stationuuid)
 	if not uuid then
 		callback(nil)
@@ -231,6 +249,16 @@ function LogoCache:ensure(station, callback)
 		station.logoPath = existing
 		self.log:info("StandaloneRadio: logo cache hit ", uuid)
 		callback(existing)
+		return
+	end
+	local tempPath = CACHE_DIR .. "/" .. uuid .. ".tmp"
+	if station.source == "user" and station.localLogoPath then
+		os.remove(tempPath)
+		self:_cacheLocal(station, tempPath, function(path)
+			if path then callback(path); return end
+			station.localLogoPath = nil
+			self:ensure(station, callback)
+		end)
 		return
 	end
 
@@ -259,7 +287,6 @@ function LogoCache:ensure(station, callback)
 	end
 
 	self.active[uuid] = true
-	local tempPath = CACHE_DIR .. "/" .. uuid .. ".tmp"
 	os.remove(tempPath)
 	self.log:info("StandaloneRadio: downloading logo ", uuid)
 	self.log:info("StandaloneRadio: logo route=async-http url=", UrlTransport.redact(favicon))

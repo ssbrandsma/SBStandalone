@@ -140,9 +140,10 @@ The client publishes `track.artwork_url` with this priority:
 
 Changing ICY metadata immediately clears the preceding cover and republishes
 the station logo while the existing asynchronous lookup runs. Its discovery
-callback retains the original remote URL; the existing image download and
-legacy artwork sink continue unchanged. A successful result replaces the logo
-without changing session or station identity. Exact station generation,
+callback retains the original remote URL and publishes it directly to native
+Now Playing through Standalone Base. A successful result replaces the logo
+without changing session or station identity. No local artwork copy or custom
+Now Playing window is maintained. Exact station generation,
 station ID, and StreamTitle checks reject delayed results.
 
 `UrlTransport.artworkUrl()` accepts bounded credential-free HTTP(S) URLs only.

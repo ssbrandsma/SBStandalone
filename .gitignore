@@ -5,3 +5,7 @@ dist/*
 # Local device diagnostics
 logs/
 downloads/
+
+# Python tooling caches
+__pycache__/
+*.pyc

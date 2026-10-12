@@ -1,4 +1,4 @@
-local io, os, pcall, setmetatable, tostring, type = io, os, pcall, setmetatable, tostring, type
+local pcall, setmetatable, tostring, type = pcall, setmetatable, tostring, type
 
 local string = require("string")
 
@@ -19,7 +19,6 @@ local TrackArtwork = {}
 TrackArtwork.__index = TrackArtwork
 local API_HOST = "api.lms-community.org"
 local API_PORT = 80
-local MAX_BYTES = 512 * 1024
 
 
 local function trim(value)
@@ -46,9 +45,7 @@ end
 function new(options)
 	return setmetatable({
 		log = options.log,
-		nowPlaying = options.nowPlaying,
 		resolver = Resolver.new({ log = options.log }),
-		httpsProxyStatus = options.httpsProxyStatus,
 		onArtworkUrl = options.onArtworkUrl,
 		generation = 0,
 	}, TrackArtwork)
@@ -61,20 +58,10 @@ function TrackArtwork:_isCurrent(generation, key, station)
 end
 
 
-function TrackArtwork:_removeTemp()
-	if self.tempPath then
-		os.remove(self.tempPath)
-		self.tempPath = nil
-	end
-end
-
-
 function TrackArtwork:reset(station)
 	self.generation = self.generation + 1
 	self.currentKey = nil
 	self.currentStationId = station and station.id or nil
-	self:_removeTemp()
-	self.nowPlaying:clearTrackArtwork(station)
 end
 
 
@@ -101,8 +88,6 @@ function TrackArtwork:lookup(station, streamTitle, stationGeneration)
 	local generation = self.generation
 	self.currentKey = key
 	self.currentStationId = station.id
-	self:_removeTemp()
-	self.nowPlaying:beginTrackArtwork(station, key)
 	self.log:info("StandaloneRadio: track artwork lookup artist=", artist, " title=", title)
 
 	local path = "/music/track/" .. encodePathSegment(title) .. "/" .. encodePathSegment(artist) .. "/cover"
@@ -142,65 +127,13 @@ function TrackArtwork:lookup(station, streamTitle, stationGeneration)
 			if self.onArtworkUrl then
 				self.onArtworkUrl(station, streamTitle, picture, stationGeneration)
 			end
-			self:_downloadPicture(station, key, generation, picture)
 		end, "GET", path, { headers = {
 			["Host"] = API_HOST,
 			["Accept"] = "application/json",
 			["Connection"] = "close",
 		} })
 		self.http = SocketHttp(jnt, ip, API_PORT, "StandaloneRadioTrackArtwork")
-		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.1" } end
+		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.3" } end
 		self.http:fetch(request)
-	end)
-end
-
-
-function TrackArtwork:_downloadPicture(station, key, generation, picture)
-	self.log:info("StandaloneRadio: artwork download start url=", UrlTransport.redact(picture))
-	local tempPath = "/tmp/standalone-radio-track-" .. tostring(generation) .. ".img"
-	self.tempPath = tempPath
-	os.remove(tempPath)
-	local target, targetErr = UrlTransport.forRequest(picture, self.log)
-	if not target then self.log:warn("StandaloneRadio: artwork transport failed ", tostring(targetErr)); return end
-	self.resolver:resolve(target.host, function(ip)
-		if not self:_isCurrent(generation, key, station) then return end
-		if not ip then self.log:warn("StandaloneRadio: artwork DNS failed"); return end
-		local request
-		local done = false
-		request = RequestHttp(function(body, err)
-			if done then return end
-			if body == nil and not err then return end
-			done = true
-			if not self:_isCurrent(generation, key, station) then
-				self.log:info("StandaloneRadio: ignoring stale artwork result")
-				return
-			end
-			local status = request:t_getResponseStatus()
-			if err or type(body) ~= "string" or #body == 0 or #body > MAX_BYTES
-				or (status and (status < 200 or status >= 300)) then
-				if err and target.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(picture) end
-				self.log:warn("StandaloneRadio: track artwork image failed ", tostring(err or status or "invalid size"))
-				return
-			end
-			local file = io.open(tempPath, "wb")
-			if file then file:write(body); file:close() end
-			if not file or not self.nowPlaying:setTrackArtwork(station, key, tempPath) then
-				self.log:warn("StandaloneRadio: track artwork image failed")
-			else
-				self.log:info("StandaloneRadio: artwork download complete url=", UrlTransport.redact(picture))
-			end
-			os.remove(tempPath)
-			if self.tempPath == tempPath then self.tempPath = nil end
-		end, "GET", target.path, { headers = {
-			Host = target.hostHeader, Accept = "image/png,image/jpeg,*/*", Connection = "close",
-		} })
-		local socket = SocketHttp(jnt, ip, target.port, "StandaloneRadioTrackArtworkImage")
-		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.1" } end
-		self.imageHttp = socket
-		local ok, fetchErr = pcall(function() socket:fetch(request) end)
-		if not ok then
-			if target.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(picture) end
-			self.log:warn("StandaloneRadio: artwork request failed ", tostring(fetchErr))
-		end
 	end)
 end
