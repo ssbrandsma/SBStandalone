@@ -103,6 +103,7 @@ function Client:_snapshot()
 	local station = self.station
 	if not station then return nil end
 	local title, artist = StreamMetadata.parse(self.metadata)
+	if self.timedMetadata then title=self.timedMetadata.title; artist=self.timedMetadata.artist end
 	local artwork = self.trackArtwork or self.stationArtwork
 	return {
 		state = self.desiredState or "buffering",
@@ -113,6 +114,7 @@ function Client:_snapshot()
 			station = stationName(station),
 			title = title,
 			artist = artist,
+			album = self.timedMetadata and self.timedMetadata.album or nil,
 			artwork_url = artwork,
 		},
 	}
@@ -157,7 +159,7 @@ function Client:_nativeRequest(method, path, payload, callback)
 		end
 	end
 	local socket = SocketHttp(jnt, self.host, self.port, "StandaloneRadioNowPlayingAPI")
-	socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.3" } end
+	socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.8" } end
 	self.http = socket
 	local ok, err = pcall(function() socket:fetch(request) end)
 	if not ok then finish(nil, nil, tostring(err)) end
@@ -361,7 +363,7 @@ function Client:activate(station, stationGeneration)
 	self.metadataGeneration = (self.metadataGeneration or 0) + 1
 	self.activeIntent = true
 	self.releaseRequested = false
-	if changed then self.metadata = nil end
+	if changed then self.metadata = nil; self.timedMetadata = nil end
 	self.desiredState = "buffering"
 	self:_bump()
 	self:_debug("station activated id=", safeStationId(station),
@@ -414,6 +416,7 @@ function Client:updateMetadata(streamTitle, station, stationGeneration)
 	if value == "" then value = nil end
 	if value == self.metadata then return end
 	self.metadata = value
+	self.timedMetadata = nil
 	self.trackArtwork = nil
 	self.metadataGeneration = (self.metadataGeneration or 0) + 1
 	self:_bump()
@@ -421,6 +424,27 @@ function Client:updateMetadata(streamTitle, station, stationGeneration)
 		" stationGeneration=", tostring(self.stationGeneration),
 		" value=", value and "present" or "empty")
 	self:_sync()
+end
+
+-- Structured HLS updates bypass ICY's display-string splitting and external
+-- artwork lookup. Timestamp-only tags never reach this path.
+function Client:updateTimedMetadata(event, station, stationGeneration)
+	if stationGeneration~=self.stationGeneration or not station or not self.station or
+		safeStationId(station)~=safeStationId(self.station) then return false end
+	local prior=self.timedMetadata or {}
+	local title=type(event.title)=="string" and event.title~="" and event.title or prior.title
+	local artist=type(event.artist)=="string" and event.artist~="" and event.artist or prior.artist
+	local album=type(event.album)=="string" and event.album~="" and event.album or prior.album
+	local changed=title~=prior.title or artist~=prior.artist or
+		(type(event.album)=="string" and event.album~="" and album~=prior.album)
+	if changed then self.trackArtwork=nil; if not event.album or event.album=="" then album=nil end end
+	local artwork=type(event.artwork_url)=="string" and UrlTransport.artworkUrl(event.artwork_url) or nil
+	local different=changed or album~=prior.album or (artwork and artwork~=self.trackArtwork)
+	if not different then return true end
+	self.timedMetadata={title=title,artist=artist,album=album}
+	if artwork then self.trackArtwork=artwork end
+	self.metadataGeneration=(self.metadataGeneration or 0)+1
+	self:_bump(); self:_sync(); return true
 end
 
 function Client:updateStationArtwork(url, station, stationGeneration)

@@ -26,6 +26,7 @@ except ImportError:
 
 REQUIRED_ROOT = {
     "Countries.lua",
+    "HlsMetadata.lua",
     "HttpsProxyStatus.lua",
     "LogoCache.lua",
     "NativeNowPlaying.lua",

@@ -11,6 +11,8 @@ local Framework = require("jive.ui.Framework")
 local Task = require("jive.ui.Task")
 local Timer = require("jive.ui.Timer")
 local UrlTransport = require("applets.StandaloneRadio.UrlTransport")
+local RadioFeedsClient = require("applets.StandaloneRadio.RadioFeedsClient")
+local HlsMetadata = require("applets.StandaloneRadio.HlsMetadata")
 local decode = require("squeezeplay.decode")
 local jnt = jnt
 
@@ -126,6 +128,7 @@ end
 
 local function transportStation(station, log)
 	local url = station and station.url
+	if station and station.hls then url = UrlTransport.hlsUrl(url) end
 	local target, err = UrlTransport.forRequest(url, log)
 	if not target then return nil, err end
 	local copy = {}
@@ -354,6 +357,7 @@ function StreamPlayer:_handleDisconnect(reason, flush)
 	if self.intentionalStop or flush or not reason or not self.desiredStation then
 		return
 	end
+	if self.hlsMetadata then self.hlsMetadata:stop() end
 
 	local station = self.desiredStation
 	if self.httpsProxyStatus and UrlTransport.isHttps(station.url) then
@@ -370,12 +374,13 @@ function StreamPlayer:_handleDisconnect(reason, flush)
 end
 
 
-function StreamPlayer:_finishRedirectProbe(token, station, callback)
+function StreamPlayer:_finishRedirectProbe(token, station, callback, failed)
 	if self.redirectProbeToken ~= token then
 		return
 	end
 	self.redirectProbeSockets = nil
 	self.redirectProbeRequests = nil
+	if failed and station and station.hls then station = nil end
 	callback(station)
 end
 
@@ -388,7 +393,7 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 	local target, targetErr = transportStation(station, self.log)
 	if not target then
 		self.log:warn("StandaloneRadio: redirect probe transport failed: ", tostring(targetErr))
-		self:_finishRedirectProbe(token, station, callback)
+		self:_finishRedirectProbe(token, station, callback, true)
 		return
 	end
 	self.log:info("StandaloneRadio: redirect probe resolving ", target.host)
@@ -398,7 +403,7 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 		end
 		if not ip then
 			self.log:warn("StandaloneRadio: redirect probe DNS failed; using current URL: ", tostring(resolveErr))
-			self:_finishRedirectProbe(token, station, callback)
+			self:_finishRedirectProbe(token, station, callback, true)
 			return
 		end
 
@@ -411,7 +416,7 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 			hopDone = true
 			if target.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(station.url) end
 			self.log:warn("StandaloneRadio: redirect probe failed; using current URL: ", tostring(err))
-			self:_finishRedirectProbe(token, station, callback)
+			self:_finishRedirectProbe(token, station, callback, true)
 		end, "HEAD", target.path, {
 			headers = {
 				["Host"] = target.hostHeader,
@@ -427,17 +432,56 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 				local location = responseLocation(headers)
 				self.log:info("StandaloneRadio: redirect probe response=", tostring(statusLine))
 
+				-- A local HEAD probe determines the actual elementary codec before
+				-- the decoder starts. Directory codec hints are not authoritative.
+				local contentType
+				for name, value in pairs(headers or {}) do
+					if string.lower(name) == "content-type" then contentType = string.lower(value) end
+				end
+				if not station.hls and status and status >= 200 and status < 300 and contentType and
+					(contentType:find("mpegurl", 1, true)) then
+					if redirectCount >= MAX_STREAM_REDIRECTS then
+						self:_finishRedirectProbe(token, nil, callback); return
+					end
+					self.playlistResolver = self.playlistResolver or RadioFeedsClient.new({log=self.log, httpsProxyStatus=self.httpsProxyStatus})
+					self.playlistResolver:resolveStation(station, function(resolved, err)
+						if self.generation ~= generation or self.redirectProbeToken ~= token then return end
+						if not resolved or (resolved.url == station.url and not resolved.hls) then
+							self.log:warn("StandaloneRadio: MIME playlist resolution failed: ", tostring(err))
+							self:_finishRedirectProbe(token, nil, callback); return
+						end
+						self:_probeStreamRedirect(resolved, generation, redirectCount + 1, token, callback)
+					end, true)
+					return
+				end
+				if station.hls then
+					if not status or status < 200 or status >= 300 or
+						(contentType ~= "audio/aac" and contentType ~= "audio/mpeg") then
+						self.log:warn("StandaloneRadio: native HLS probe failed/unsupported status=", tostring(status))
+						for name, value in pairs(headers or {}) do
+							if string.lower(name) == "x-sb-hls-error" then self.log:warn("StandaloneRadio: HLS: ", tostring(value)) end
+						end
+						self:_finishRedirectProbe(token, nil, callback)
+						return
+					end
+					local copy = {}
+					for key, value in pairs(station) do copy[key] = value end
+					copy.codec = contentType == "audio/aac" and "aac" or "mp3"
+					self:_finishRedirectProbe(token, copy, callback)
+					return
+				end
+
 				if status and status >= 300 and status < 400 then
 				self.log:info("StandaloneRadio: redirect probe Location=", UrlTransport.redact(location))
 					if not location or redirectCount >= MAX_STREAM_REDIRECTS then
 						self.log:warn("StandaloneRadio: redirect probe has no usable Location")
-						self:_finishRedirectProbe(token, station, callback)
+						self:_finishRedirectProbe(token, station, callback, true)
 						return
 					end
 					local redirected = redirectedStation(station, location)
 					if not redirected then
 						self.log:warn("StandaloneRadio: redirect probe ignored non-HTTP Location")
-						self:_finishRedirectProbe(token, station, callback)
+						self:_finishRedirectProbe(token, station, callback, true)
 						return
 					end
 					self:_probeStreamRedirect(redirected, generation, redirectCount + 1, token, callback)
@@ -451,9 +495,16 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 				end
 
 				self.log:warn("StandaloneRadio: redirect probe unexpected status; using current URL")
-				self:_finishRedirectProbe(token, station, callback)
+				self:_finishRedirectProbe(token, station, callback, true)
 			end,
 		})
+
+		-- Firmware 7.7.3 RequestHttp serializes query/params only for GET.
+		-- Keep the original encoded request target for this HEAD instance;
+		-- do not patch the shared framework or decode signed URL components.
+		request.t_getRequestString = function()
+			return "HEAD " .. string.match(target.path, "^[^#]*")
+		end
 
 		local socket = SocketHttp(jnt, ip, target.port or 80, "StandaloneRadioRedirectProbe")
 		self.redirectProbeSockets[#self.redirectProbeSockets + 1] = socket
@@ -463,13 +514,14 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 			hopDone = true
 			if target.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(station.url) end
 			self.log:warn("StandaloneRadio: redirect probe could not start: ", tostring(fetchErr))
-			self:_finishRedirectProbe(token, station, callback)
+			self:_finishRedirectProbe(token, station, callback, true)
 		end
 	end)
 end
 
 
 function StreamPlayer:_resolveStreamRedirect(station, generation, callback)
+	if self.playlistResolver and self.playlistResolver.cancelPlaylist then self.playlistResolver:cancelPlaylist() end
 	self.redirectProbeToken = (self.redirectProbeToken or 0) + 1
 	local token = self.redirectProbeToken
 	self.redirectProbeSockets = {}
@@ -477,6 +529,27 @@ function StreamPlayer:_resolveStreamRedirect(station, generation, callback)
 	self:_probeStreamRedirect(station, generation, 0, token, callback)
 end
 
+
+-- Metadata is bound to the decoder generation and audio-consumption clock.
+function StreamPlayer:_startHlsMetadata(session)
+	if not session then return end
+	self.hlsMetadata=self.hlsMetadata or HlsMetadata.new({
+		current=function(generation)
+			return generation==self.generation and self.ownsPlayback and
+				self.desiredStation and self.desiredStation.hls and not self.intentionalStop
+		end,
+		position=function()
+			local ok,status=pcall(function() return decode:status() end)
+			return ok and type(status)=="table" and tonumber(status.elapsed) or nil
+		end,
+		update=function(event,generation)
+			if generation==self.generation and self.callbacks.onTimedMetadata then
+				self.callbacks.onTimedMetadata(event,self.desiredStation,self.stationGeneration)
+			end
+		end,
+	})
+	self.hlsMetadata:start(session,self.generation)
+end
 
 function StreamPlayer:_installHooks(playback)
 	if self.hookedPlayback == playback then
@@ -491,6 +564,10 @@ function StreamPlayer:_installHooks(playback)
 			local headerText = type(headers) == "string" and headers or tostring(headers)
 		local statusLine = string.match(headerText, "^([^\r\n]+)")
 			local status = tonumber(string.match(statusLine or "", "^HTTP/%d%.%d%s+(%d%d%d)"))
+			if self.desiredStation and self.desiredStation.hls and status==200 then
+				local session=string.match(string.lower(headerText), "x%-sb%-hls%-session:%s*([0-9a-f]+)")
+				self:_startHlsMetadata(session)
+			end
 			self.log:info("StandaloneRadio: stream response=", tostring(statusLine))
 			local location = string.match(headerText, "[Ll]ocation:%s*([^\r\n]+)")
 			if status and status >= 300 and status < 400 and location then
@@ -530,6 +607,23 @@ function StreamPlayer:_installHooks(playback)
 	local slimproto = playback.slimproto
 	local originalSend = slimproto.send
 	slimproto.send = function(proto, packet, force)
+		local opcode = type(packet) == "table" and packet.opcode or nil
+		-- HELO is connection control, not standalone stream metadata. Suppressing
+		-- it makes both local sbbase and an external LMS time out the connection.
+		if opcode == "HELO" then
+			local address = proto.serverip
+			local loopback = type(address) == "string" and
+				(address == "localhost" or string.match(address, "^127%."))
+			if self.ownsPlayback and address and not loopback then
+				self.log:info("StandaloneRadio: releasing playback for LMS handoff to ", tostring(address))
+				self:stop()
+				-- Keep lastStation for an explicit later play action, but prevent
+				-- delayed disconnects/headers from reviving the old stream.
+				self.desiredStation = nil
+				if self.callbacks.onHandoff then self.callbacks.onHandoff() end
+			end
+			return originalSend(proto, packet, force)
+		end
 		if type(packet) == "table" and packet.opcode == "META" then
 			self:_handleMetadata(packet.data)
 		end
@@ -556,6 +650,7 @@ end
 
 
 function StreamPlayer:_begin(station, reconnect)
+	if self.hlsMetadata then self.hlsMetadata:stop() end
 	self:_cancelReconnect()
 	self.ownsPlayback = true
 	self.generation = self.generation + 1
@@ -591,6 +686,12 @@ function StreamPlayer:_begin(station, reconnect)
 
 	self:_resolveStreamRedirect(station, generation, function(playStation)
 		if self.generation ~= generation then
+			return
+		end
+		if not playStation then
+			self.ownsPlayback = false
+			self.pendingStation = nil
+			self:_notifyState(station, "FAILED", false)
 			return
 		end
 		self.desiredStation = playStation
@@ -631,6 +732,7 @@ function StreamPlayer:_begin(station, reconnect)
 				"User-Agent: SqueezePlay StandaloneRadio\r\n" ..
 				"Icy-MetaData: 1\r\n" ..
 				"Accept: " .. decoder.accept .. "\r\n" ..
+				(playStation.hls and ("X-SB-HLS-Codec: " .. (decoder.mode == "a" and "aac" or "mp3") .. "\r\n") or "") ..
 				"Cache-Control: no-cache\r\n\r\n"
 			playback.autostart = '1'
 			playback.threshold = 0
@@ -667,6 +769,8 @@ end
 
 
 function StreamPlayer:stop()
+	if self.hlsMetadata then self.hlsMetadata:stop() end
+	if self.playlistResolver and self.playlistResolver.cancelPlaylist then self.playlistResolver:cancelPlaylist() end
 	self.generation = self.generation + 1
 	self.ownsPlayback = false
 	self:_cancelReconnect()

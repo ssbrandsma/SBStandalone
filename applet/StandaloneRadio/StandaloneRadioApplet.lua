@@ -27,6 +27,7 @@ local StreamPlayer = require("applets.StandaloneRadio.StreamPlayer")
 local StandaloneBaseNowPlaying = require("applets.StandaloneRadio.StandaloneBaseNowPlaying")
 local TrackArtwork = require("applets.StandaloneRadio.TrackArtwork")
 local UserStations = require("applets.StandaloneRadio.UserStations")
+local UrlTransport = require("applets.StandaloneRadio.UrlTransport")
 
 local log = require("jive.utils.log").logger("StandaloneRadio")
 local appletManager = appletManager
@@ -117,6 +118,14 @@ function _ensureComponents(self)
 		lastStation = self.lastStation,
 		httpsProxyStatus = self.httpsProxyStatus,
 		callbacks = {
+			onHandoff = function()
+				self.nativeNowPlaying:shutdown()
+				self.trackArtwork:reset(nil)
+				self.baseNowPlaying:release()
+			end,
+			onTimedMetadata = function(event, station, stationGeneration)
+				self.baseNowPlaying:updateTimedMetadata(event, station, stationGeneration)
+			end,
 			onState = function(station, state, show, stationGeneration)
 				self.baseNowPlaying:updateState(state, station, stationGeneration)
 				self:_refreshMenu()
@@ -205,15 +214,18 @@ function _playStation(self, station)
 		station = resolved
 	end
 
-	if station.source == "radiofeeds" and string.match(string.lower(station.url or ""), "%.m3u[%?%#]?")
-		or station.source == "radiofeeds" and string.match(string.lower(station.url or ""), "%.pls[%?%#]?") then
-		self.radioFeeds:resolveStation(station, function(resolved, err)
+	self.playlistRequestGeneration = (self.playlistRequestGeneration or 0) + 1
+	if self.radioFeeds.cancelPlaylist then self.radioFeeds:cancelPlaylist() end
+	local playlistGeneration = self.playlistRequestGeneration
+	if not station.hls and RadioFeedsClient.isPlaylistUrl(station.url) then
+		self.radioFeeds:resolveStation(station, function(resolved, err, code)
+			if self.playlistRequestGeneration ~= playlistGeneration then return end
 			if not resolved then
 				log:warn("StandaloneRadio: RadioFeeds playlist resolution failed: ", tostring(err))
-				self:_showPopup(self:string("STANDALONE_RADIO_FAILED"))
+				self:_showPopup(self:string(code == "hls_unsupported" and "STANDALONE_RADIO_HLS_UNSUPPORTED" or "STANDALONE_RADIO_FAILED"), 5000)
 				return
 			end
-			_logInfo("RadioFeeds playlist resolved ", station.url, " -> ", resolved.url)
+			_logInfo("RadioFeeds playlist resolved ", UrlTransport.redact(station.url), " -> ", UrlTransport.redact(resolved.url))
 			self:_playStation(resolved)
 		end)
 		return
@@ -542,10 +554,15 @@ end
 
 
 function _showRadioFeedsSearch(self, entry)
+	entry = entry or { title = self:string("STANDALONE_RADIO_SEARCH"), url = self.radioFeeds:searchUrl() }
 	local window = Window("text_list", entry.title)
 	local input = Textinput("textinput", Textinput.textValue("", 0, 64), function(_, value)
-		local url = string.gsub(entry.url, "{QUERY}", urlEncode(value))
-		self:radioFeedsMenu(url, entry.title)
+		local query = tostring(value or ""):match("^%s*(.-)%s*$")
+		if query == "" then return false end
+		-- Percent escapes in a replacement string are interpreted by gsub.
+		-- Return the encoded query from a function to preserve its bytes.
+		local url = string.gsub(entry.url, "{QUERY}", function() return urlEncode(query) end)
+		self:_showRadioFeedsSearchResults(url, entry.title)
 		return true
 	end)
 	local backspace = Keyboard.backspace()
@@ -554,6 +571,38 @@ function _showRadioFeedsSearch(self, entry)
 	window:addWidget(Keyboard("keyboard", "qwerty", input))
 	window:focusWidget(group)
 	self:tieAndShowWindow(window)
+end
+
+
+function _showRadioFeedsSearchResults(self, url, title)
+	local window = Window("text_list", title)
+	local menu = SimpleMenu("menu")
+	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
+	window:addWidget(menu)
+	menu:setItems({ { text = self:string("STANDALONE_RADIO_LOADING"), style = "item", weight = 0 } })
+	self:tieAndShowWindow(window)
+	self.radioFeedsSearchIdentity = (self.radioFeedsSearchIdentity or 0) + 1
+	local identity = self.radioFeedsSearchIdentity
+	self.radioFeeds:fetchDirectory(url, function(directory, err)
+		if identity ~= self.radioFeedsSearchIdentity then return end
+		if err or not directory then
+			log:warn("StandaloneRadio: RadioFeeds search failed: ", tostring(err))
+			menu:setItems({ { text = self:string("STANDALONE_RADIO_RADIOFEEDS_FAILED"), style = "item", weight = 0 } })
+		else
+			local stations = {}
+			local function collect(entries)
+				for _, item in ipairs(entries or {}) do
+					if item.type == "audio" then
+						local station = self.radioFeeds:toStation(item)
+						if station then stations[#stations + 1] = station end
+					elseif item.children then collect(item.children) end
+				end
+			end
+			collect(directory.children)
+			menu:setItems(self:_stationItems(stations))
+		end
+		menu:reLayout()
+	end)
 end
 
 
@@ -602,15 +651,28 @@ function radioFeedsMenu(self, url, title)
 	if not self:_ensureComponents() then return end
 	local window = Window("text_list", title)
 	local menu = SimpleMenu("menu")
+	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
 	window:addWidget(menu)
-	menu:setItems({ { text = self:string("STANDALONE_RADIO_LOADING"), style = "item", weight = 0 } })
+	local isRoot = url == self.radioFeeds:rootUrl()
+	local function withSearch(items)
+		if isRoot then
+			table.insert(items, 1, { text = self:string("STANDALONE_RADIO_SEARCH"), sound = "SELECT", weight = -1,
+				callback = function() self:_showRadioFeedsSearch() end })
+		end
+		return items
+	end
+	menu:setItems(withSearch({ { text = self:string("STANDALONE_RADIO_LOADING"), style = "item", weight = 0 } }))
 	self:tieAndShowWindow(window)
 	self.radioFeeds:fetchDirectory(url, function(directory, err)
 		if err then
 			log:warn("StandaloneRadio: RadioFeeds directory failed url=", url, " error=", tostring(err))
-			menu:setItems({ { text = self:string("STANDALONE_RADIO_RADIOFEEDS_FAILED"), style = "item", weight = 0 } })
+			menu:setItems(withSearch({ { text = self:string("STANDALONE_RADIO_RADIOFEEDS_FAILED"), style = "item", weight = 0 } }))
 		else
-			menu:setItems(self:_radioFeedsItems(directory.children))
+			local entries = {}
+			for _, entry in ipairs(directory.children or {}) do
+				if not (isRoot and entry.type == "search") then entries[#entries + 1] = entry end
+			end
+			menu:setItems(withSearch(self:_radioFeedsItems(entries)))
 		end
 		menu:reLayout()
 	end)

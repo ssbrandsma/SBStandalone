@@ -59,6 +59,7 @@ $requiredRootFiles = @(
 	"Stations.lua",
 	"StreamMetadata.lua",
 	"StreamPlayer.lua",
+	"HlsMetadata.lua",
 	"TrackArtwork.lua",
 	"UserStations.lua",
 	"UrlTransport.lua",
@@ -159,7 +160,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Add user-defined stations managed by Standalone Base.")
+	$xml = $xml.Replace("Applet Installer package release $version.", "Improve RadioFeeds and HLS playback, metadata and artwork integration; restore playback control when switching LMS servers.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

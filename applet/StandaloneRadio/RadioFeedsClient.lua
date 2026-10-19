@@ -1,5 +1,7 @@
 local ipairs, pairs, pcall, setmetatable, tonumber, tostring, type = ipairs, pairs, pcall, setmetatable, tonumber, tostring, type
 local string = require("string")
+local table = require("table")
+local URL = require("socket.url")
 
 local RequestHttp = require("jive.net.RequestHttp")
 local Resolver = require("applets.StandaloneRadio.Resolver")
@@ -15,10 +17,13 @@ local RadioFeedsClient = {}
 RadioFeedsClient.__index = RadioFeedsClient
 
 local ROOT_URL = "http://www.radiofeeds.co.uk/MyPicks/menu.opml?username=forusewithstandalone"
+local SEARCH_URL = "http://www.radiofeeds.co.uk/MyPicks/integsearchall.opml?term={QUERY}&username=forusewithstandalone&search=1&center=1"
 local USER_AGENT = "Lyrion Music Server"
 local MAX_OPML_BYTES = 256 * 1024
 local MAX_PLAYLIST_BYTES = 64 * 1024
 local MAX_REDIRECTS = 5
+local MAX_PLAYLISTS = 5
+
 
 local function parseUrl(url)
 	local scheme, host, port, path = string.match(tostring(url or ""), "^(https?)://([^/:]+):?(%d*)(/.*)$")
@@ -33,15 +38,10 @@ local function header(headers, wanted)
 end
 
 local function absoluteUrl(base, location)
-	if string.match(location or "", "^https?://") then return location end
-	local parsed = parseUrl(base)
-	if not parsed then return nil end
-	local authority = parsed.host .. ((parsed.port ~= (parsed.scheme == "https" and 443 or 80)) and (":" .. parsed.port) or "")
-	if string.sub(location or "", 1, 1) == "/" then
-		return parsed.scheme .. "://" .. authority .. location
-	end
-	local directory = string.match(parsed.path, "^(.*)/") or ""
-	return parsed.scheme .. "://" .. authority .. directory .. "/" .. tostring(location)
+	if type(location) ~= "string" or location == "" then return nil end
+	local resolved = URL.absolute(base, location)
+	if not parseUrl(resolved) then return nil end
+	return resolved
 end
 
 local function usablePlaylistUrl(base, location)
@@ -63,12 +63,34 @@ local function stationKey(url)
 end
 
 local function playlistUrl(body)
+	local isPLS = string.find(string.lower(body or ""), "%[playlist%]") ~= nil
 	for line in string.gmatch(body or "", "[^\r\n]+") do
 		line = string.gsub(line, "^%s*(.-)%s*$", "%1")
 		local value = string.match(line, "^[Ff][Ii][Ll][Ee]%d+=([^\r\n]+)$")
 		if value then return string.gsub(value, "^%s*(.-)%s*$", "%1") end
-		if line ~= "" and string.sub(line, 1, 1) ~= "#" and string.match(line, "^https?://") then return line end
+		if not isPLS and line ~= "" and string.sub(line, 1, 1) ~= "#" then return line end
 	end
+end
+
+function isPlaylistUrl(url)
+	local path = string.match(string.lower(tostring(url or "")), "^[^?#]+") or ""
+	return string.match(path, "%.m3u8?$") ~= nil or string.match(path, "%.pls$") ~= nil
+end
+
+-- HLS may contain absolute or relative segment URLs. Neither is a complete
+-- continuous stream: never pass its first segment to the ordinary decoder.
+function resolvePlaylistResponse(base, body)
+	if type(body) ~= "string" then return nil, "RadioFeeds playlist is empty" end
+	body = string.gsub(body, "^\239\187\191", "")
+	for line in string.gmatch(body, "[^\r\n]+") do
+		if string.match(line, "^%s*#EXT%-X%-") then
+			return base, nil, "hls"
+		end
+	end
+	local location = playlistUrl(body)
+	local resolved = location and usablePlaylistUrl(base, location)
+	if not resolved or string.find(resolved, "[%s%z<>]") then return nil, "RadioFeeds playlist has no HTTP stream" end
+	return resolved
 end
 
 local function stationCodec(item)
@@ -76,7 +98,7 @@ local function stationCodec(item)
 	if explicit ~= "" then return explicit end
 	local title = string.lower(tostring(item.title or ""))
 	if string.find(title, "(aacplus)", 1, true) or string.find(title, "(aac+)", 1, true) then return "aac+" end
-	if string.find(title, "(aac)", 1, true) then return "aac" end
+	if string.find(title, "%(aac[%s%)]") then return "aac" end
 	if string.find(title, "(ogg)", 1, true) then return "ogg" end
 	if string.find(title, "(flac)", 1, true) then return "flac" end
 	if string.find(title, "(aiff)", 1, true) or string.find(title, "(aif)", 1, true) then return "aif" end
@@ -96,15 +118,50 @@ function RadioFeedsClient:rootUrl()
 	return ROOT_URL
 end
 
+function RadioFeedsClient:searchUrl()
+	return SEARCH_URL
+end
+
 function RadioFeedsClient:_fetch(url, accept, maxBytes, redirects, callback)
+	local streaming = maxBytes == MAX_PLAYLIST_BYTES
+	local generation = self.playlistGeneration
 	local parsed, parseErr = UrlTransport.forRequest(url, self.log)
 	if not parsed then callback(nil, parseErr); return false end
 	self.log:info("StandaloneRadio: RadioFeeds GET ", UrlTransport.redact(url))
 	self.resolver:resolve(parsed.host, function(ip)
+		if streaming and generation ~= self.playlistGeneration then return end
 		if not ip then callback(nil, "RadioFeeds DNS failed"); return end
 		local responseHeaders
 		local request
+		local socket
+		local completed = false
+		local chunks, bytes = {}, 0
+		local function tooLarge()
+			if completed then return end
+			completed = true
+			chunks = {}
+			if self.playlistHttp == socket then self.playlistHttp = nil end
+			if self.http == socket then self.http = nil end
+			if socket and socket.close then pcall(function() socket:close() end) end
+			callback(nil, "RadioFeeds response is too large")
+		end
 		request = RequestHttp(function(body, err)
+			if completed or (streaming and generation ~= self.playlistGeneration) then return end
+			if streaming and body and not err then
+				if #body > maxBytes - bytes then tooLarge(); return end
+				bytes = bytes + #body
+				chunks[#chunks+1] = body
+				if #chunks >= 128 then chunks = {table.concat(chunks)} end
+				return
+			end
+			if not streaming and body == nil and not err then return end
+			completed = true
+			if streaming then
+				if self.playlistHttp == socket then self.playlistHttp = nil end
+				if self.http == socket then self.http = nil end
+				if not err then body = table.concat(chunks) end
+				chunks = {}
+			end
 			if err then
 				if parsed.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(url) end
 				callback(nil, tostring(err)); return
@@ -121,21 +178,42 @@ function RadioFeedsClient:_fetch(url, accept, maxBytes, redirects, callback)
 			end
 			if not status or status < 200 or status >= 300 then callback(nil, "RadioFeeds HTTP " .. tostring(status or statusLine)); return end
 			if #body > maxBytes then callback(nil, "RadioFeeds response is too large"); return end
-			callback(body, nil, contentType)
+			local effectiveUrl = url
+			if not parsed.proxied and request.getURI then
+				local candidate = URL.build(request:getURI())
+				if parseUrl(candidate) then effectiveUrl = candidate end
+			end
+			callback(body, nil, contentType, effectiveUrl)
 		end, "GET", parsed.path, {
+			stream = streaming,
 			headers = { Host = parsed.hostHeader, ["User-Agent"] = USER_AGENT, Accept = accept, Connection = "close" },
-			headersSink = function(headers) responseHeaders = headers end,
+			headersSink = function(headers)
+				responseHeaders = headers
+				local length = tonumber(header(headers, "content-length") or "")
+				if streaming and length and length > maxBytes then tooLarge() end
+			end,
 		})
-		local socket = SocketHttp(jnt, ip, parsed.port, "StandaloneRadioRadioFeeds")
+		socket = SocketHttp(jnt, ip, parsed.port, "StandaloneRadioRadioFeeds")
 		socket.t_getSendHeaders = function() return { ["User-Agent"] = USER_AGENT } end
 		self.http = socket
+		if streaming then self.playlistHttp = socket end
 		local ok, fetchErr = pcall(function() socket:fetch(request) end)
-		if not ok then
+		if not ok and not completed then
+			completed = true
 			if parsed.proxied and self.httpsProxyStatus then self.httpsProxyStatus:transportFailed(url) end
 			callback(nil, tostring(fetchErr))
 		end
 	end)
 	return true
+end
+
+-- Cancel only playlist work, not a directory/search request on this client.
+function RadioFeedsClient:cancelPlaylist()
+	self.playlistGeneration = (self.playlistGeneration or 0) + 1
+	local socket = self.playlistHttp
+	self.playlistHttp = nil
+	if self.http == socket then self.http = nil end
+	if socket and socket.close then pcall(function() socket:close() end) end
 end
 
 function RadioFeedsClient:fetchDirectory(url, callback)
@@ -165,23 +243,41 @@ function RadioFeedsClient:toStation(item)
 	return Stations.normalize(station)
 end
 
-function RadioFeedsClient:resolveStation(station, callback)
+function RadioFeedsClient:resolveStation(station, callback, force)
+	self:cancelPlaylist()
+	local generation = self.playlistGeneration
 	local url = station and station.url or ""
-	if not string.match(string.lower(url), "%.m3u[%?%#]?") and not string.match(string.lower(url), "%.pls[%?%#]?") then
+	if station and station.hls then callback(station); return true end
+	if not force and not isPlaylistUrl(url) then
 		callback(station); return true
 	end
-	return self:_fetch(url, "audio/x-mpegurl,audio/x-scpls,text/plain,*/*", MAX_PLAYLIST_BYTES, 0, function(body, err)
-		if err then callback(nil, err); return end
-		local resolved = playlistUrl(body)
-		if not resolved then callback(nil, "RadioFeeds playlist has no HTTP stream"); return end
-		local copy = {}
-		for key, value in pairs(station) do copy[key] = value end
-		copy.playlistUrl = station.playlistUrl or station.url
-		copy.url = usablePlaylistUrl(url, resolved) or resolved
-		if copy.url ~= resolved then
-			self.log:warn("StandaloneRadio: replaced unusable playlist URL ", resolved, " with ", copy.url)
+	local visited, depth, finished = {}, 0, false
+	local function finish(result, err, code)
+		if finished or generation ~= self.playlistGeneration then return end
+		finished = true
+		callback(result, err, code)
+	end
+	local resolve
+	resolve = function(current)
+		if visited[current] or depth >= MAX_PLAYLISTS then
+			finish(nil, "RadioFeeds playlist loop or nesting limit reached"); return
 		end
-		local normalized, normalizeErr = Stations.normalize(copy)
-		callback(normalized, normalizeErr)
-	end)
+		visited[current], depth = true, depth + 1
+		self:_fetch(current, "audio/x-mpegurl,application/vnd.apple.mpegurl,audio/x-scpls,text/plain,*/*", MAX_PLAYLIST_BYTES, 0, function(body, err, contentType, effectiveUrl)
+			if finished then return end
+			if err then finish(nil, err); return end
+			local resolved, parseErr, code = resolvePlaylistResponse(effectiveUrl or current, body)
+			if not resolved then finish(nil, parseErr, code); return end
+			if code ~= "hls" and isPlaylistUrl(resolved) then resolve(resolved); return end
+			local copy = {}
+			for key, value in pairs(station) do copy[key] = value end
+			copy.playlistUrl = station.playlistUrl or station.url
+			copy.url = resolved
+			copy.hls = code == "hls" or nil
+			local normalized, normalizeErr = Stations.normalize(copy)
+			finish(normalized, normalizeErr)
+		end)
+	end
+	resolve(url)
+	return true
 end

@@ -21,14 +21,14 @@ RadioBrowser.__index = RadioBrowser
 
 local API_HOST = "all.api.radio-browser.info"
 local API_BASE = "http://" .. API_HOST
-local USER_AGENT = "StandaloneRadio/0.9.3"
+local USER_AGENT = "StandaloneRadio/0.9.8"
 local CACHE_DIR = "/etc/squeezeplay/userpath/StandaloneRadio/cache/stations"
 
 local PAGE_SIZE = 250
 local SEARCH_CHUNK_SIZE = 100
 local POPULAR_CHUNK_SIZE = 50
 local CACHE_MAX_AGE_SECONDS = 86400
-local STATION_CACHE_VERSION = 5
+local STATION_CACHE_VERSION = 6
 
 local SUPPORTED_CODECS = {
 	["aac"] = true, ["aac+"] = true, ["ogg"] = true,
@@ -61,7 +61,9 @@ local function compatible(item)
 	return trim(item.name) ~= "" and trim(item.stationuuid) ~= ""
 		and SUPPORTED_CODECS[string.lower(trim(item.codec))] == true
 		and (string.sub(scheme, 1, 7) == "http://" or scheme == "https://")
-		and (item.lastcheckok == nil or isOne(item.lastcheckok)) and not isOne(item.hls)
+		and (item.lastcheckok == nil or isOne(item.lastcheckok))
+		and (not isOne(item.hls) or string.lower(trim(item.codec)) == "aac" or
+			string.lower(trim(item.codec)) == "aac+" or string.lower(trim(item.codec)) == "mp3")
 end
 
 local function toStation(item, countrycode)
@@ -71,6 +73,7 @@ local function toStation(item, countrycode)
 		id = "radiobrowser:" .. trim(item.stationuuid), stationuuid = trim(item.stationuuid),
 		name = trim(item.name), url = url, favicon = trim(item.favicon), source = "radiobrowser",
 		codec = trim(item.codec), bitrate = tonumber(item.bitrate) or 0,
+		hls = isOne(item.hls) or nil,
 		clickcount = tonumber(item.clickcount) or 0, votes = tonumber(item.votes) or 0,
 		countrycode = string.upper(trim(countrycode or item.countrycode)),
 	}
@@ -80,7 +83,7 @@ end
 local function cacheRecord(station)
 	return {
 		station.stationuuid, station.name, station.url, station.favicon or "",
-		station.codec or "", station.bitrate or 0, station.clickcount or 0, station.votes or 0,
+		station.codec or "", station.bitrate or 0, station.clickcount or 0, station.votes or 0, station.hls and 1 or 0,
 	}
 end
 
@@ -89,7 +92,7 @@ local function recordStation(record, countrycode)
 	return toStation({
 		stationuuid = record[1], name = record[2], url = record[3], favicon = record[4],
 		codec = record[5], bitrate = record[6], clickcount = record[7], votes = record[8],
-		lastcheckok = 1, hls = 0,
+		lastcheckok = 1, hls = record[9] or 0,
 	}, countrycode)
 end
 

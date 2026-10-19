@@ -1,4 +1,5 @@
 local io, os, pcall, setmetatable, tonumber, tostring, type = io, os, pcall, setmetatable, tonumber, tostring, type
+local pairs = pairs
 
 local lfs = require("lfs")
 local string = require("string")
@@ -157,7 +158,7 @@ function LogoCache:_finishDownload(station, tempPath, callback)
 end
 
 
-function LogoCache:_download(station, uuid, url, tempPath, callback)
+function LogoCache:_download(station, uuid, url, tempPath, callback, svgRetry)
 	local target, targetErr = UrlTransport.forRequest(url, self.log)
 	if not target then
 		self.active[uuid] = nil
@@ -173,6 +174,7 @@ function LogoCache:_download(station, uuid, url, tempPath, callback)
 			return
 		end
 		local request
+		local responseHeaders
 		local done = false
 		request = RequestHttp(function(body, err)
 			if done then return end
@@ -191,6 +193,20 @@ function LogoCache:_download(station, uuid, url, tempPath, callback)
 				callback(nil)
 				return
 			end
+			-- MIME-less SVG endpoints can be recognized as XML and retried once.
+			-- The native service validates/renders the content; Lua does not parse it.
+			local svgMime = false
+			for name, value in pairs(responseHeaders or {}) do
+				if tostring(name):lower() == "content-type" and tostring(value):lower():match("^image/svg%+xml") then svgMime = true end
+			end
+			if not svgRetry and (svgMime or body:match("^%s*<")) then
+				local rendered = UrlTransport.renderSvgUrl(url, "image/svg+xml")
+				if rendered and rendered ~= url then
+					self.active[uuid] = true
+					self:_download(station, uuid, rendered, tempPath, callback, true)
+					return
+				end
+			end
 			local file = io.open(tempPath, "wb")
 			if not file then callback(nil); return end
 			file:write(body)
@@ -198,9 +214,9 @@ function LogoCache:_download(station, uuid, url, tempPath, callback)
 			self:_finishDownload(station, tempPath, callback)
 		end, "GET", target.path, { headers = {
 			Host = target.hostHeader, Accept = "image/png,image/jpeg,*/*", Connection = "close",
-		} })
+		}, headersSink = function(headers) responseHeaders = headers end })
 		local socket = SocketHttp(jnt, ip, target.port, "StandaloneRadioLogo")
-		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.3" } end
+		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.8" } end
 		self.http = socket
 		local ok, fetchErr = pcall(function() socket:fetch(request) end)
 		if not ok then
@@ -276,7 +292,7 @@ function LogoCache:ensure(station, callback)
 		callback(nil)
 		return
 	end
-	if string.match(string.lower(favicon), "%.svg[%?%#]?$") or string.match(string.lower(favicon), "%.ico[%?%#]?$") then
+	if string.match(string.lower(favicon), "%.ico[%?%#]?$") then
 		self.log:warn("StandaloneRadio: unsupported station logo format")
 		callback(nil)
 		return

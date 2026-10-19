@@ -40,3 +40,11 @@ equal(parsed.path, "/https/example.com/listen.m3u")
 equal(parsed.hostHeader, "127.0.0.1:8765")
 
 print("UrlTransport tests passed")
+equal(transport.hlsUrl("https://example.com/live.m3u8?q=a%2Fb"),
+    "http://127.0.0.1:8765/hls/https/example.com/live.m3u8?q=a%2Fb")
+equal(transport.hlsUrl("http://example.com/live.m3u8"),
+    "http://127.0.0.1:8765/hls/http/example.com/live.m3u8")
+local localHls = "http://127.0.0.1:8765/hls/https/example.com/live.m3u8"
+equal(transport.hlsUrl(localHls), localHls)
+assert(transport.hlsUrl("file:///tmp/audio") == nil)
+assert(transport.hlsUrl("https://user:secret@example.com/live.m3u8") == nil)

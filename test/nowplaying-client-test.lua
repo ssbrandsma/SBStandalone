@@ -244,4 +244,23 @@ client3:activate(b, 2)
 equal(requests3[2].path, "/api/nowplaying/claim")
 equal(client3:status().stationGeneration, 2)
 
+-- Timed metadata preserves structured artist/title, suppresses duplicates,
+-- clears obsolete APIC, and rejects callbacks from previous generations.
+local timed=api.new({request=function() end})
+timed.station=a;timed.stationGeneration=7;timed.stationArtwork="http://logo.example/station.png"
+timed._sync=function() end
+equal(timed:updateTimedMetadata({title="Title - literal",artist="Artist",album="Album",
+    artwork_url="http://127.0.0.1:8765/hls-meta/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/art/1"},a,7),true)
+local snapshot=timed:_snapshot()
+equal(snapshot.track.title,"Title - literal");equal(snapshot.track.artist,"Artist");equal(snapshot.track.album,"Album")
+assert(snapshot.track.artwork_url:find("/hls%-meta/"))
+local revision=timed.revision
+timed:updateTimedMetadata({title="Title - literal",artist="Artist",album="Album"},a,7)
+equal(timed.revision,revision)
+timed:updateTimedMetadata({timestamp_90khz=90000},a,7)
+equal(timed.revision,revision)
+equal(timed:updateTimedMetadata({title="Stale"},a,6),false)
+timed:updateTimedMetadata({title="Next"},a,7)
+equal(timed:_snapshot().track.artwork_url,timed.stationArtwork)
+equal(timed:_snapshot().track.album,nil)
 print("StandaloneBase Now Playing client tests passed")

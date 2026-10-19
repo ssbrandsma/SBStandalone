@@ -9,7 +9,7 @@ function Require-Text([string]$Path, [string]$Pattern, [string]$Message) {
 Require-Text 'applet/StandaloneRadio/RadioFeedsClient.lua' 'UrlTransport\.forRequest\(url, self\.log\)' 'RadioFeeds does not use UrlTransport'
 Require-Text 'applet/StandaloneRadio/RadioFeedsClient.lua' 'USER_AGENT = "Lyrion Music Server"' 'RadioFeeds User-Agent changed'
 Require-Text 'applet/StandaloneRadio/RadioFeedsClient.lua' 'application/xml,text/xml,\*/\*' 'RadioFeeds XML Accept header changed'
-Require-Text 'applet/StandaloneRadio/RadioFeedsClient.lua' '\^https\?://' 'HTTPS playlist entries are not accepted'
+Require-Text 'applet/StandaloneRadio/RadioFeedsClient.lua' '\^\(https\?\)://' 'HTTPS playlist entries are not accepted'
 Require-Text 'applet/StandaloneRadio/LogoCache.lua' 'UrlTransport\.forRequest\(url, self\.log\)' 'Logos do not use UrlTransport'
 Require-Text 'applet/StandaloneRadio/TrackArtwork.lua' 'UrlTransport\.artworkUrl\(url\)' 'Track artwork URLs are not validated'
 Require-Text 'applet/StandaloneRadio/StreamPlayer.lua' 'transportStation\(playStation, self\.log\)' 'Playback does not translate at its boundary'

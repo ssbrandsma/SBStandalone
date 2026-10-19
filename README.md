@@ -161,7 +161,7 @@ For `Artist - Title` metadata, StandaloneRadio optionally looks up current-track
 To validate and install an already-built distribution ZIP directly, use:
 
 ```powershell
-.\deploy_dist.cmd .\dist\StandaloneRadio-0.9.3 root@<radio-ip> -p<password>
+.\deploy_dist.cmd .\dist\StandaloneRadio-0.9.8 root@<radio-ip> -p<password>
 ```
 
 Use `--dry-run` to validate the package without connecting to the Radio.
@@ -211,3 +211,11 @@ For ICY-capable streams, it asks for metadata, reads the server's `icy-metaint` 
 The stock playback engine pauses audio after an output-buffer underrun and normally waits for LMS to send a resume command. StandaloneRadio checks for that paused state once per second and resumes audio locally once the encoded stream buffer has refilled. This avoids a temporary network hiccup leaving a healthy stream silent.
 
 See [research.md](research.md) for the firmware-specific investigation. Historical source states remain available through Git history.
+
+### Playlist formats
+
+RadioFeeds ordinary M3U, M3U8 and PLS files resolve to direct audio streams,
+including relative entries and bounded nested playlists. Supported HLS AAC/MP3
+audio uses Standalone Base's native loopback relay, including MPEG-TS audio
+extraction. Both projects must be updated together. Encrypted/fMP4 and other
+unsupported HLS formats fail cleanly. See [playlist handling](docs/PLAYLIST_HANDLING.md).
