@@ -2,7 +2,7 @@
 local M={}
 local Navigator={};Navigator.__index=Navigator
 function M.new(options)
-    return setmetatable({client=options.client,ui=options.ui,serial=0,contexts={}},Navigator)
+    return setmetatable({client=options.client,ui=options.ui,serial=0,contexts={},clock=options.clock or os.time,cacheTtl=options.cacheTtl},Navigator)
 end
 function Navigator:cancel()
     self.serial=self.serial+1
@@ -23,6 +23,7 @@ function Navigator:items(entries)
     for index,entry in ipairs(entries or {}) do
         local selected=entry
         local item={text=selected.title and selected.title~="" and selected.title or selected.guide_id or selected.id or self.ui.text("untitled"),sound="SELECT",weight=index}
+        if index<=24 and self.ui.icon and (selected.image or selected.icon) then item.icon=self.ui.icon(selected) end
         if selected.type=="audio" and self.ui.actions then
             item.cmCallback=function()
                 local station,err=self.client:toStation(selected)
@@ -36,9 +37,9 @@ function Navigator:items(entries)
                 local station,err=self.client:toStation(selected)
                 if station then self.ui.play(station) else self.ui.error(err) end
             end
-        elseif selected.children or selected.type=="directory" then
+        elseif selected.children or (selected.type=="directory" and not selected.url) then
             item.callback=function() self:open(nil,selected.title,selected.children or {}) end
-        elseif selected.url and (selected.type=="link" or selected.type=="") then
+        elseif selected.url and (selected.type=="link" or selected.type=="directory" or selected.type=="") then
             item.callback=function() self:open(selected.url,selected.title) end
         else item.style="item" end
         items[#items+1]=item
@@ -58,10 +59,15 @@ function Navigator:open(url,title,inline,search)
     local depth=0
     for _ in pairs(self.contexts) do depth=depth+1 end
     if depth>=12 then self.ui.error("OPML navigation depth limit reached");return nil end
+    if url then
+        for ancestor in pairs(self.contexts) do
+            if ancestor.url==url or ancestor.effectiveUrl==url then self.ui.error("Circular OPML directory link");return nil end
+        end
+    end
     self:cancel()
     local window,menu=self.ui.window(title)
     self.openSerial=(self.openSerial or 0)+1
-    local context={active=true,menu=menu,order=self.openSerial,remote=url~=nil}
+    local context={active=true,menu=menu,order=self.openSerial,remote=url~=nil,url=url}
     self.contexts[context]=true
     local function deactivate()
         if context.active then
@@ -75,7 +81,7 @@ function Navigator:open(url,title,inline,search)
         if context.menu then context.menu:setItems({}) end
         context.menu=nil
     end,function() if context.resume then context.resume() end end)
-    local root=url==self.client:rootUrl()
+    local root=self.client:searchUrl() and url==self.client:rootUrl()
     local function decorate(items)
         if root then table.insert(items,1,{text=self.ui.text("search"),sound="SELECT",weight=-1,callback=function() self:search() end}) end
         return items
@@ -89,11 +95,16 @@ function Navigator:open(url,title,inline,search)
         local cancel=self.client:fetchDirectory(url,function(directory,err)
             if identity~=self.serial or not context.active or not context.menu then return end
             finished=true;self.pending=nil;context.loading=false
+            if directory and directory.url then
+                for ancestor in pairs(self.contexts) do
+                    if ancestor~=context and (ancestor.url==directory.url or ancestor.effectiveUrl==directory.url) then directory=nil;err="Circular OPML directory redirect";break end
+                end
+            end
             if not directory then
                 context.menu:setItems(decorate({{text=self.ui.text("failed"),weight=0,callback=load}}))
                 self.ui.error(err,true)
             else
-                context.loaded=true
+                context.loaded=true;context.loadedAt=self.clock();context.effectiveUrl=directory.url
                 local entries={}
                 for _,entry in ipairs(directory.children or {}) do
                     if not (root and entry.type=="search") then entries[#entries+1]=entry end
@@ -129,7 +140,7 @@ function Navigator:open(url,title,inline,search)
         if not finished and type(cancel)=="function" then self.pending=cancel end
     end
     context.resume=function()
-        if not context.active and context.loading and url then load()
+        if not context.active and url and (context.loading or (self.cacheTtl and context.loadedAt and (self.clock()<context.loadedAt or self.clock()-context.loadedAt>=self.cacheTtl))) then load()
         else context.active=true;self.current=context end
     end
     self.ui.show(window)

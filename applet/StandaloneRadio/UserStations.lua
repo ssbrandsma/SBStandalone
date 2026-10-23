@@ -12,6 +12,7 @@ local UserStations = {}
 UserStations.__index = UserStations
 
 local CONFIG_PATH = "/mnt/sbdata/config/radio/stations.json"
+local INTERNAL_PATH = "/mnt/storage/standalonebase/radio/stations.json"
 local LOGO_ROOT = "/mnt/sbdata/config/radio/logos/"
 local MAX_BYTES = 256 * 1024
 local MAX_STATIONS = 250
@@ -93,17 +94,23 @@ local function readBounded(path)
 	return body
 end
 
-local function normalize(raw)
+local function normalize(raw,logoRoot)
 	if type(raw) ~= "table" then return nil, "station is not an object" end
 	if not safeComponent(raw.id, 64, false) then return nil, "invalid id" end
 	if not validString(raw.name, 256, true) then return nil, "invalid name" end
-	if not validUrl(raw.streamUrl, false) or #raw.streamUrl > 8192 then return nil, "invalid streamUrl" end
+	local itemType=raw.type or "station"
+    if itemType~="station" and itemType~="opml" then return nil,"invalid type" end
+    local sourceUrl=raw.streamUrl
+    if itemType=="opml" and type(sourceUrl)=="string" then
+        sourceUrl=sourceUrl:gsub("^(https?://[^/?#]+)(.*)$",function(host,tail) return host..(tail:sub(1,1)=="/" and tail or "/"..tail) end)
+    end
+    if not validUrl(sourceUrl, false) or #sourceUrl > (itemType=="opml" and 4096 or 8192) or (itemType=="opml" and sourceUrl:find("[%c%s#]")) then return nil, "invalid streamUrl" end
 	if type(raw.enabled) ~= "boolean" then return nil, "invalid enabled" end
 	if not integer(raw.order) then return nil, "invalid order" end
 	local description = raw.description == nil and "" or raw.description
 	local logoUrl = raw.logoUrl == nil and "" or raw.logoUrl
 	local logoFile = raw.logoFile == nil and "" or raw.logoFile
-	local codec = raw.codec == nil and "auto" or string.lower(raw.codec)
+	local codec = itemType=="opml" and "auto" or (raw.codec == nil and "auto" or (type(raw.codec)=="string" and string.lower(raw.codec) or false))
 	if not validString(description, 1024, false) then return nil, "invalid description" end
 	if not validString(logoUrl, 4096, false) or not validUrl(logoUrl, true) then return nil, "invalid logoUrl" end
 	if not validString(logoFile, 128, false)
@@ -112,12 +119,12 @@ local function normalize(raw)
 
 	local station = {
 		id = raw.id, stationuuid = "user-" .. raw.id .. "-" .. cacheSuffix(logoFile ~= "" and logoFile or logoUrl), name = raw.name,
-		description = description, url = raw.streamUrl, streamUrl = raw.streamUrl,
-		source = "user", codec = codec, order = raw.order,
+		description = description, url = sourceUrl, streamUrl = raw.streamUrl,
+		source = "user", type=itemType, codec = codec, order = raw.order,
 		remoteLogo = logoUrl ~= "" and logoUrl or nil,
 		favicon = logoUrl ~= "" and logoUrl or nil,
 		logoFile = logoFile ~= "" and logoFile or nil,
-		localLogoPath = logoFile ~= "" and (LOGO_ROOT .. logoFile) or nil,
+		localLogoPath = logoFile ~= "" and ((logoRoot or LOGO_ROOT) .. logoFile) or nil,
 	}
 	local ok, err = Stations.normalize(station)
 	if not ok then return nil, err end
@@ -134,7 +141,7 @@ end
 function new(options)
 	options = options or {}
 	return setmetatable({
-		path = options.path or CONFIG_PATH,
+		path = options.path or CONFIG_PATH, explicitPath=options.path~=nil,
 		readFile = options.readFile,
 		decoder = options.decoder or json.decode,
 		log = options.log,
@@ -147,6 +154,17 @@ function UserStations:_log(level, ...)
 end
 
 function UserStations:_read()
+    if not self.explicitPath then
+        local mounted=false
+        local file=io.open("/proc/mounts","r")
+        if file then
+            for line in file:lines() do
+                if line:match("^%S+%s+/mnt/sbdata%s+sbubifs%s") then mounted=true;break end
+            end
+            file:close()
+        end
+        self.path=mounted and CONFIG_PATH or INTERNAL_PATH
+    end
 	if self.readFile then return self.readFile(self.path, MAX_BYTES) end
 	return readBounded(self.path)
 end
@@ -180,7 +198,7 @@ function UserStations:reload()
 			self:_log("warn", "stations after limit skipped")
 			break
 		end
-		local station, stationErr = normalize(raw)
+		local station, stationErr = normalize(raw,(self.path:match("^(.*)/[^/]+$") or ".").."/logos/")
 		if not station then
 			self:_log("warn", "invalid station skipped index=", tostring(index), " reason=", tostring(stationErr))
 		elseif seen[station.id] then
@@ -191,9 +209,9 @@ function UserStations:reload()
 		end
 	end
 	table.sort(stations, compare)
-	local changed = self.revision ~= root.revision
+	local changed = self.revision ~= root.revision or self.loadedPath~=self.path
 	if changed then
-		self.stations, self.byId, self.revision = stations, byId, root.revision
+		self.stations, self.byId, self.revision, self.loadedPath = stations, byId, root.revision, self.path
 		self:_log("info", "revision=", tostring(root.revision), " enabled=", tostring(#stations))
 	end
 	return self.stations, nil, changed
@@ -208,5 +226,5 @@ function UserStations:resolve(id)
 end
 
 function limits()
-	return { maxBytes=MAX_BYTES, maxStations=MAX_STATIONS, path=CONFIG_PATH, logoRoot=LOGO_ROOT }
+	return { maxBytes=MAX_BYTES, maxStations=MAX_STATIONS, path=CONFIG_PATH, internalPath=INTERNAL_PATH, logoRoot=LOGO_ROOT }
 end

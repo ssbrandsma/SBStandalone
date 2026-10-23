@@ -206,3 +206,16 @@ translated root entry and use `_getOpmlNavigator(providerId)`. Put provider URL
 preparation/resolver recognition in the definition. Extend normalized metadata
 only when needed, add recorded fixtures and test cancellation, presets and
 access failures. Reuse the same parser, navigator, player and artwork services.
+
+## User-configured directories
+
+The `custom` provider reuses this stack without provider endpoints. Its station
+keys derive from stream URLs, avoiding guide-ID collisions across directories.
+A provider may opt into the bounded client cache with `directoryCacheTtl`;
+custom uses 60 seconds and the navigator receives the same TTL. Redirect
+results carry their effective URL for relative resolution and cycle checks.
+The navigator accepts an optional UI icon hook and preserves loading/error,
+cancellation and bounded window state. See [custom directory behavior and
+limits](USER_DEFINED_STATIONS.md#custom-opml-directories).
+
+HTTP redirect ownership and HLS validation are documented in [HTTP redirects and HLS transport](http-hls-redirects.md).

@@ -172,7 +172,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Separate shared OPML transport and parsing from provider-specific behavior; preserve RadioFeeds and TuneIn browsing, playback and presets.")
+	$xml = $xml.Replace("Applet Installer package release $version.", "Add custom OPML directories and fix HTTP-to-HTTPS playlist redirects with bounded request cleanup and HLS playback.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

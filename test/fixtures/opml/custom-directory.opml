@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<opml version="2.0"><head><title>My Radio Directory</title></head><body>
+<outline text="Netherlands"><outline text="Radio One" type="audio" URL="streams/one.mp3" image="logos/one.png" htmlUrl="https://example.org/radio-one"/></outline>
+<outline title="Jazz" type="link" xmlUrl="jazz.opml?lang=en" icon="logos/jazz.png"/>
+<outline text="Remote folder" type="directory" URL="folders.opml"/>
+<outline text="Heading" type="text" htmlUrl="https://example.org/info"/>
+<outline text="Unsupported" type="video" URL="not-audio.mp4"/>
+</body></opml>

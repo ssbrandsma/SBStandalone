@@ -44,3 +44,16 @@ assert(windows[#windows].menu.items[1].text=="BBC")
 for i=1,20 do nav:open("root","RadioFeeds");windows[#windows].pop() end
 nav:close();assert(next(nav.contexts)==nil)
 print("Generic navigator RadioFeeds hierarchy/search/playback, retry, cancellation, stale callbacks and repeated lifecycle tests passed")
+
+nav:close();local errors=0;ui.error=function() errors=errors+1 end
+local clock=0;nav=Navigator.new({client=client,ui=ui,clock=function() return clock end,cacheTtl=60})
+local count=#pending
+local w=nav:open("cycle","Cycle");pending[#pending].callback({url="cycle",children={{type="link",title="Self",url="cycle"}}})
+w.menu.items[1].callback();assert(errors==1 and #pending==count+1)
+w.inactive();clock=61;w.active();assert(#pending==count+2)
+pending[#pending].callback({url="cycle",children={}})
+nav:close()
+for i=1,12 do assert(nav:open("depth-"..i,"Depth")) end
+assert(nav:open("depth-13","Too deep")==nil)
+nav:close()
+print("OPML navigation cycles, TTL refresh and bounded traversal passed")

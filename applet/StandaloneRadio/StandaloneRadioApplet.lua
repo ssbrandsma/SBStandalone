@@ -1,4 +1,4 @@
-local assert, ipairs, os, pairs, tostring = assert, ipairs, os, pairs, tostring
+local assert, io, ipairs, os, pairs, pcall, tostring = assert, io, ipairs, os, pairs, pcall, tostring
 
 local oo = require("loop.simple")
 local table = require("table")
@@ -219,6 +219,7 @@ function _playStation(self, station)
 		station = resolved
 	end
 
+    if station.type=="opml" then self:_showPopup(self:string("STANDALONE_RADIO_USER_STATION_UNAVAILABLE"));return end
 	self.playlistRequestGeneration = (self.playlistRequestGeneration or 0) + 1
 	if self.playlistClient and self.playlistClient.cancelPlaylist then self.playlistClient:cancelPlaylist() end
     if self.radioFeeds.cancelPlaylist then self.radioFeeds:cancelPlaylist() end
@@ -427,6 +428,29 @@ function _showStationList(self, title, stations)
 end
 
 
+-- Reuse Jive's bounded artwork queue/cache and Base routing; no image decoder
+-- or independent downloader is introduced for directory icons.
+function _customItemIcon(self,station)
+    local url=station.remoteLogo or station.image or station.icon
+    if station.localLogoPath and station.logoFile then
+        local file=io.open(station.localLogoPath,"rb")
+        if file then
+            file:close()
+            local available,helper=pcall(require,"applets.StandaloneBase.ImageRender")
+            local port=available and helper.webPort() or 80
+            url="http://127.0.0.1:"..port.."/api/radio/logos/"..station.logoFile
+        end
+    end
+    if not url or url=="" then return nil end
+    local haveIcon,Icon=pcall(require,"jive.ui.Icon")
+    local haveServer,SlimServer=pcall(require,"jive.slim.SlimServer")
+    local server=haveServer and SlimServer:getCurrentServer()
+    if not haveIcon or not server then return nil end
+    local icon=Icon("icon")
+    server:fetchArtwork(url,icon,"40x40")
+    return icon
+end
+
 function _renderUserStations(self)
 	if not self.userStationsMenuWidget then return end
 	local stations, err = self.userStations:reload()
@@ -438,10 +462,15 @@ function _renderUserStations(self)
 	for index, station in ipairs(stations or {}) do
 		local selected = station
 		items[#items + 1] = {
-			text = Stations.displayName(selected, self), sound = "SELECT", weight = index,
+			text = Stations.displayName(selected, self)..(selected.type=="opml" and "  >" or ""), sound = "SELECT", weight = index,
+            icon=selected.type=="opml" and index<=24 and self:_customItemIcon(selected) or nil,
 			callback = function()
 				_logInfo("selected user station id=", selected.id)
-				self:_playStation(selected)
+                if selected.type=="opml" then
+                    self.opmlClients=self.opmlClients or {}
+                    self.opmlClients.custom=self.opmlClients.custom or OpmlClient.new({log=log,httpsProxyStatus=self.httpsProxyStatus,provider=OpmlProviders.get("custom")})
+                    self:_getOpmlNavigator("custom"):open(selected.url,selected.name)
+                else self:_playStation(selected) end
 			end,
 		}
 	end
@@ -575,7 +604,7 @@ function _getOpmlNavigator(self, provider)
     local navigator=self.opmlNavigators[provider]
     if not navigator then
         local client=assert(self.opmlClients and self.opmlClients[provider] or (provider=="radiofeeds" and self.radioFeeds))
-        navigator=OpmlNavigator.new({client=client,ui={
+        navigator=OpmlNavigator.new({client=client,cacheTtl=client.provider and client.provider.directoryCacheTtl,ui={
             window=function(title)
                 local window=Window("text_list",title)
                 local menu=SimpleMenu("menu")
@@ -593,6 +622,7 @@ function _getOpmlNavigator(self, provider)
                     failed=provider=="radiofeeds" and "STANDALONE_RADIO_RADIOFEEDS_FAILED" or "STANDALONE_RADIO_OPML_FAILED"}
                 return self:string(tokens[key])
             end,
+            icon=function(entry) return self:_customItemIcon(entry) end,
             search=function(entry,submit,cancel) self:_showOpmlSearchInput(entry,submit,cancel) end,
             play=function(station) self:_playStation(station) end,
             actions=function(station) self:_showOpmlStationActions(station) end,

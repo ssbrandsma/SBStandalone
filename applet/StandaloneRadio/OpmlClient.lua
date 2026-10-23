@@ -1,3 +1,4 @@
+local os = os
 local ipairs, pairs, pcall, setmetatable, tonumber, tostring, type = ipairs, pairs, pcall, setmetatable, tonumber, tostring, type
 local string = require("string")
 local table = require("table")
@@ -17,7 +18,7 @@ module(...)
 local OpmlClient = {}
 OpmlClient.__index = OpmlClient
 
-local USER_AGENT = "Standalone/0.9.12"
+local USER_AGENT = "Standalone/0.9.13"
 local MAX_OPML_BYTES = 256 * 1024
 local MAX_PLAYLIST_BYTES = 64 * 1024
 local MAX_REDIRECTS = 5
@@ -110,8 +111,11 @@ function OpmlClient:searchUrl()
 	return self.provider and self.provider.search
 end
 
-function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback)
-	local trace=UrlTransport.beginTrace and UrlTransport.beginTrace(self.provider and self.provider.id or "opml",url)
+function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, parent)
+    visited=visited or {}
+    if visited[url] then callback(nil,"OPML redirect loop");return function() end end
+    visited[url]=true
+	local trace=UrlTransport.beginTrace and UrlTransport.beginTrace(self.provider and self.provider.id or "opml",url,parent)
 	local playlist = maxBytes == MAX_PLAYLIST_BYTES
 	local streaming = true
 	local generation = self.playlistGeneration
@@ -126,11 +130,12 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback)
         if trace then trace:finish("cancelled") end
         if socketRef and socketRef.close then socketRef:close("cancelled") end
     end
-    callback=function(...)
+    callback=function(body,err,mime,effective)
         if finished or cancelled then return end
         finished=true
         if timer then timer:stop() end
-        return originalCallback(...)
+        if trace then trace:finish(err, type(body)=="string" and #body or nil) end
+        return originalCallback(body,err,mime,effective,trace and trace.id)
     end
     if timerAvailable then
         timer=Timer(15000,function()
@@ -187,9 +192,26 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback)
 			local contentType = header(responseHeaders, "content-type") or ""
 			self.log:info("StandaloneRadio: OPML response status=", tostring(statusLine), " type=", contentType, " bytes=", tostring(#body))
 			if status and status >= 300 and status < 400 then
+                if trace then trace:finish(nil,bytes) end
+                -- Stop reading this hop without closing a socket inside its read task.
+                -- A redirect body may never finish; it must not leave an orphan reader.
+                if socket and socket.close then
+                    if timerAvailable then
+                        local closeTimer
+                        closeTimer=Timer(1,function() closeTimer:stop();socket:close("redirect complete") end,true)
+                        closeTimer:start()
+                    else pcall(function() socket:close("redirect complete") end) end
+                end
 				local location = header(responseHeaders, "location")
-				if not location or redirects >= MAX_REDIRECTS then callback(nil, "OPML redirect failed"); return end
-				childCancel = self:_fetch(absoluteUrl(url, location), accept, maxBytes, redirects + 1, callback)
+				if not location or location=="" or redirects >= MAX_REDIRECTS then callback(nil, "OPML redirect failed"); return end
+                local nextUrl=absoluteUrl(url, location)
+                local target,targetErr=UrlTransport.forRequest(nextUrl,self.log)
+                if not target then callback(nil,"OPML redirect transport error: "..tostring(targetErr));return end
+                if timer then timer:stop() end
+                self.log:info("HTTPTRACE event=redirect id=",trace and trace.id or "-",
+                    " from_scheme=",url:match("^(%w+):")," to_scheme=",nextUrl:match("^(%w+):"),
+                    " transport=",target.proxied and "sbproxy" or "http", " status=",tostring(status))
+                childCancel = self:_fetch(nextUrl, accept, maxBytes, redirects + 1, callback,visited,trace and trace.id)
 				return
 			end
 			if not status or status < 200 or status >= 300 then callback(nil, "OPML HTTP " .. tostring(status or statusLine)); return end
@@ -220,10 +242,12 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback)
 					end
 					return
 				end
+				if status and status>=300 and status<400 then return end -- redirect bodies are discarded
 				local length = tonumber(header(headers, "content-length") or "")
 				if streaming and length and length > maxBytes then tooLarge() end
 			end,
 		})
+		if UrlTransport.explicitRedirects then UrlTransport.explicitRedirects(request) end
 		request._standaloneTrace=trace
 		socket = SocketHttp(jnt, ip, parsed.port, "StandaloneRadioOpml")
 		socket.t_getSendHeaders = function() return { ["User-Agent"] = self.userAgent } end
@@ -251,7 +275,42 @@ function OpmlClient:cancelPlaylist()
 	if socket and socket.close then pcall(function() socket:close() end) end
 end
 
-function OpmlClient:fetchDirectory(url, callback)
+-- Only custom directories opt into this short-lived, RAM-only two-page cache.
+-- At most one distinct directory fetch is active; identical requests coalesce.
+function OpmlClient:fetchDirectory(url,callback)
+    local ttl=self.provider and self.provider.directoryCacheTtl
+    if not ttl then return self:_fetchDirectory(url,callback) end
+    local now=os.time()
+    self.directoryCache=self.directoryCache or {}
+    for _,entry in ipairs(self.directoryCache) do
+        if (entry.url==url or entry.request==url) and now>=entry.time and now-entry.time<ttl then callback(entry.value);return function() end end
+    end
+    local pending=self.directoryPending
+    if pending and pending.url~=url then callback(nil,"OPML directory request busy");return function() end end
+    if pending and #pending.listeners>=8 then callback(nil,"OPML listener limit reached");return function() end end
+    if not pending then pending={url=url,listeners={}};self.directoryPending=pending end
+    local listener={callback=callback};pending.listeners[#pending.listeners+1]=listener
+    if not pending.started then
+        pending.started=true
+        pending.cancel=self:_fetchDirectory(url,function(directory,err)
+            if self.directoryPending~=pending then return end
+            self.directoryPending=nil
+            if directory then
+                for i=#self.directoryCache,1,-1 do if self.directoryCache[i].url==directory.url then table.remove(self.directoryCache,i) end end
+                self.directoryCache[#self.directoryCache+1]={url=directory.url,request=url,value=directory,time=os.time()}
+                while #self.directoryCache>2 do table.remove(self.directoryCache,1) end
+            end
+            for _,waiting in ipairs(pending.listeners) do if not waiting.cancelled then waiting.callback(directory,err) end end
+        end)
+    end
+    return function()
+        listener.cancelled=true
+        for _,waiting in ipairs(pending.listeners) do if not waiting.cancelled then return end end
+        if self.directoryPending==pending then self.directoryPending=nil;if pending.cancel then pending.cancel() end end
+    end
+end
+
+function OpmlClient:_fetchDirectory(url, callback)
 	if self.provider and self.provider.prepareUrl then url=self.provider.prepareUrl(url) end
 	return self:_fetch(url, "application/xml,text/xml,*/*", MAX_OPML_BYTES, 0, function(body, err, contentType, effectiveUrl)
 		if err then callback(nil, err); return end
@@ -259,7 +318,7 @@ function OpmlClient:fetchDirectory(url, callback)
 		if result then
 			local function normalize(entries)
 				for _,entry in ipairs(entries or {}) do
-					for _,field in ipairs({"url","image","icon"}) do
+					for _,field in ipairs({"url","image","icon","homepage"}) do
 						if entry[field] then
 							entry[field]=absoluteUrl(effectiveUrl or url,entry[field])
 							if field=="url" and entry[field] and self.provider and self.provider.prepareUrl then entry[field]=self.provider.prepareUrl(entry[field]) end
@@ -270,7 +329,8 @@ function OpmlClient:fetchDirectory(url, callback)
 			end
 			normalize(result.children)
 		end
-		callback(result, parseErr)
+		if result then result.url=effectiveUrl or url end
+        callback(result, parseErr)
 	end)
 end
 
@@ -358,9 +418,15 @@ function OpmlClient:resolveStation(station, callback, force)
     if station and station.hls and not station.requiresResolution then callback(station);return true end
     if not force and not station.requiresResolution and not isPlaylistUrl(url) then callback(station);return true end
     local visited,requests,finished={},0,false
+    local resolutionTrace
+    local resolutionType=url:lower():match("%.m3u8[%?#]?") and "hls" or "playlist"
     local function finish(result,err,code)
         if finished or generation~=self.playlistGeneration then return end
-        finished=true;self.playlistCancel=nil;callback(result,err,code)
+        finished=true;self.playlistCancel=nil
+        self.log:info("HTTPTRACE event=playlist_resolution id=",resolutionTrace or "-",
+            " type=",result and result.hls and "hls" or resolutionType,
+            " status=",result and "success" or "failed", " reason=",err and UrlTransport.redact(tostring(err)) or "-")
+        callback(result,err,code)
     end
     local resolve
     resolve=function(current,depth,done)
@@ -368,7 +434,8 @@ function OpmlClient:resolveStation(station, callback, force)
         if self.provider and self.provider.prepareUrl then current=self.provider.prepareUrl(current) end
         if visited[current] or depth>=MAX_PLAYLISTS or requests>=8 then done(nil,"OPML resolution loop or request limit reached");return end
         visited[current]=true;requests=requests+1
-        local cancel=self:_fetch(current,"audio/x-mpegurl,application/vnd.apple.mpegurl,audio/x-scpls,text/plain,application/xml,*/*",MAX_PLAYLIST_BYTES,0,function(body,err,contentType,effectiveUrl)
+        local cancel=self:_fetch(current,"audio/x-mpegurl,application/vnd.apple.mpegurl,audio/x-scpls,text/plain,application/xml,*/*",MAX_PLAYLIST_BYTES,0,function(body,err,contentType,effectiveUrl,traceId)
+            resolutionTrace=traceId
             if finished or generation~=self.playlistGeneration then return end
             if err then done(nil,err);return end
             local candidates,parseErr

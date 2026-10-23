@@ -83,6 +83,12 @@ With Extended Storage enabled, install Standalone Base **0.5.7 or newer**
 before Standalone Radio 0.9.9. Base fixes the stock installer's destination
 selection and ZIP extraction so the applet appears in the Home menu.
 
+Radio **0.9.13** adds custom OPML directories to My Radio Stations, follows
+Base's internal/Extended Storage configuration, and fixes HTTP-to-HTTPS playlist
+redirects without bypassing sbproxy. Redirect loops, timeouts and cancellation
+are bounded. See [custom directories](docs/USER_DEFINED_STATIONS.md#custom-opml-directories)
+and [HLS redirect validation](docs/http-hls-redirects.md).
+
 Radio **0.9.12** moves shared OPML code into clearly named client/parser modules
 and isolates provider-specific behavior while preserving station IDs and presets.
 

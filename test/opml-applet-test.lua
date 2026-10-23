@@ -57,3 +57,20 @@ assert(pending[3].cancelled and next(nav.contexts)==nil)
 pending[3].callback({children={{type="audio",title="Stale",url="https://example.com/stale"}}})
 assert(applet.played.name=="Found")
 print("Applet OPML UI adapter: search keyboard lifetime, station actions/playback and provider switching passed")
+
+Stations={displayName=function(station) return station.name end};_logInfo=function() end
+assert((loadstring or load)(assert(source:match("(function _renderUserStations.-)function userStationsMenu"))))()
+local custom=client("custom");applet.opmlClients.custom=custom
+applet.userStations={reload=function() return {{id="dir",type="opml",name="My Directory",url="https://example.org/root.opml"},{id="station",type="station",name="Direct",url="https://example.org/live"}} end}
+applet.presetStore={getFavorites=function() return {} end}
+applet._customItemIcon=function() return nil end
+applet.userStationsMenuWidget=SimpleMenu("menu")
+_renderUserStations(applet)
+assert(#applet.userStationsMenuWidget.items==2)
+applet.userStationsMenuWidget.items[2].callback();assert(applet.played.name=="Direct")
+applet.userStationsMenuWidget.items[1].callback()
+assert(pending[#pending].url=="https://example.org/root.opml")
+pending[#pending].callback({children={{type="directory",title="Nested",children={{type="audio",title="Nested Station",url="https://example.org/nested.mp3"}}}}})
+applet.current.menu.items[1].callback();applet.current.menu.items[1].callback()
+assert(applet.played.name=="Nested Station" and applet.played.provider=="custom")
+print("My Radio Stations mixed directory/station menu opens generic OPML navigation and shared playback")

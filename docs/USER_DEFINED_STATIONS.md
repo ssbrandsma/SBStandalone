@@ -10,8 +10,9 @@ replacement.
 The Standalone Radio menu contains:
 
 1. Radio Browser
-2. RadioFeeds UK & Ireland
-3. My Radio Stations
+2. TuneIn
+3. RadioFeeds UK & Ireland
+4. My Radio Stations
 
 Custom stations use the existing stream player, HTTPS proxy, ICY metadata,
 artwork lookup, presets, and Standalone Base Now Playing publisher. No second
@@ -19,10 +20,7 @@ player, proxy, background process, or polling timer is introduced.
 
 ## Standalone Base Integration
 
-The requested `docs/RADIO_STATIONS_MANAGEMENT.md` was not present in the
-Standalone Base 0.2.6 source tree during implementation. The shipped
-`native/sbwebserver/src/radio_stations.c` implementation was therefore treated
-as authoritative.
+Standalone Base owns the existing station API and persistent storage.
 
 Standalone Base atomically replaces this file after a successful edit:
 
@@ -168,10 +166,10 @@ workflow. Building does not deploy or restart a Radio.
 ## Physical-Device Test Procedure
 
 1. Install a package containing `UserStations.lua` on a Radio with Standalone
-   Base and active extended storage.
+   Base. Extended Storage is optional.
 2. Add HTTP and HTTPS stations through the Standalone Base web interface,
    including external, uploaded, and absent logos.
-3. Confirm the three main menu entries and configured ordering.
+3. Confirm the main menu entries and configured ordering.
 4. Start each station and verify buffering, audio, ICY text, Home/Back behavior,
    and native Now Playing ownership.
 5. Assign and recall a physical preset. Rename the station and change its URL,
@@ -186,7 +184,7 @@ workflow. Building does not deploy or restart a Radio.
 
 ## Troubleshooting And Known Limitations
 
-- If My Radio Stations is empty, confirm extended storage is mounted and
+- If My Radio Stations is empty, confirm the active configuration path and
   `stations.json` is readable by the SqueezePlay process.
 - Unsupported schema versions and root-level JSON errors preserve the previous
   valid list.
@@ -196,3 +194,60 @@ workflow. Building does not deploy or restart a Radio.
   authenticated web URLs through generic native Now Playing.
 - Physical-device behavior has to be validated separately; host tests cannot
   exercise the firmware decoder, renderer, preset buttons, or flash mount.
+
+## Custom OPML directories
+
+In the Base portal, open **Standalone Radio ? Add Station**, choose **OPML directory**,
+enter a name and HTTP(S) OPML URL, then save. Codec is hidden; description,
+external/uploaded logo, order and enabled work as for stations. The list shows
+both types. Edit or delete normally; reopen My Radio Stations to load changes.
+
+The existing schema gains optional `type` (`station` by default, or `opml`):
+
+```json
+{"id":"my-directory","type":"opml","name":"My directory","streamUrl":"https://example.org/radio.opml","codec":"auto","enabled":true,"order":20}
+```
+
+Other existing fields remain supported. Unknown types are rejected by Base.
+There is no fetch on save. Base writes atomically and increments the revision.
+With Extended Storage mounted as `sbubifs`, configuration is
+`/mnt/sbdata/config/radio/stations.json`; otherwise it is
+`/mnt/storage/standalonebase/radio/stations.json`. Uploaded logos live in the
+adjacent `logos/` directory. Radio follows the same active storage root.
+
+Directories appear with `>` alongside playable stations. Opening one uses the
+shared `OpmlClient`, `OpmlParser` and `OpmlNavigator`; playable children use
+StreamPlayer. Inline folders need no request; remote folders load only when
+selected. Back restores the previous menu and selection. A directory cannot
+be played through a station preset.
+
+Supported outlines include `text`/`title`, case-insensitive `URL`/`url`,
+`xmlUrl`, audio entries, inline children, remote link/directory entries and
+`image`/`icon`. `htmlUrl` is homepage metadata, never an inferred stream.
+Relative links and artwork use the final redirected document URL. Unknown
+entries retain the existing unsupported-item behavior. RSS feeds themselves
+are not supported. Example: [custom-directory.opml](../test/fixtures/opml/custom-directory.opml).
+
+Existing asynchronous HTTP, Base HTTPS proxy, tracing, redirects, cancellation,
+stream resolution and artwork rendering are reused. Local logo wins over the
+external logo. Icons use existing artwork fetching; only the first 24 rows in
+a menu request icons to bound decoded artwork memory.
+
+Limits: 250 configured entries / 256 KiB configuration; OPML 256 KiB,
+1,024 XML nodes, XML depth 32, 12 active navigation levels, 15-second request
+timeout, five redirects. XML DTD/entity declarations are rejected; no external
+entities or local file URLs are fetched. Parsing is synchronous but bounded;
+there is no recursive prefetch or new worker/process. Custom directory URLs
+support query strings; fragments, userinfo and IPv6 literals are unsupported.
+
+Custom directories cache at most two parsed pages in RAM for 60 seconds,
+matching requested and effective URLs. One distinct directory request is
+allowed at a time; up to eight listeners share the same pending request.
+Cancellation releases a listener and cancels HTTP when none remain. Failed
+requests are not cached. Revisiting after expiry refreshes. Nothing is cached
+to flash. Ancestor URL checks reject circular links, including redirects;
+the depth cap bounds alternate-URL cycles.
+
+Loading, empty and failure menus preserve Back navigation. Malformed or
+oversized XML, HTTP/network failures and unsupported entries do not replace
+other custom stations. TuneIn and RadioFeeds retain their existing policies.

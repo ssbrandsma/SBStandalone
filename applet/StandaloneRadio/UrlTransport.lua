@@ -4,8 +4,30 @@ local string = require("string")
 
 local UrlTransport = {}
 local traceOk, HttpTrace = pcall(require, "applets.StandaloneBase.HttpTrace")
-function UrlTransport.beginTrace(source, url)
-    return traceOk and HttpTrace.begin(source, "GET", url) or nil
+function UrlTransport.beginTrace(source, url, parent)
+    return traceOk and HttpTrace.begin(source, "GET", url, parent) or nil
+end
+
+-- RequestHttp's built-in GET redirect mutates/reuses the request and creates
+-- a plain socket, bypassing HTTPS transport. Deliver redirect completion to
+-- the caller instead. Keep this per-instance, before tracing wraps the request.
+function UrlTransport.explicitRedirects(request)
+    local original = request.t_setResponseBody
+    if not original then return request end -- lightweight test doubles
+    local delivered = false
+    request.t_setResponseBody = function(self, data)
+        local status = self:t_getResponseStatus()
+        if type(status) == "number" and status >= 300 and status < 400 then
+            if not delivered then
+                delivered = true
+                local sink = self:t_getResponseSink()
+                if sink then sink(nil, nil, self) end
+            end
+            return
+        end
+        return original(self, data)
+    end
+    return request
 end
 
 -- Optional Standalone Base service keeps SVG handling out of the audio applet.

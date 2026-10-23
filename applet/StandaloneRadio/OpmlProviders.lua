@@ -33,6 +33,13 @@ function M.get(id, options)
             end,root="http://www.radiofeeds.co.uk/MyPicks/menu.opml?username=forusewithstandalone",
             search="http://www.radiofeeds.co.uk/MyPicks/integsearchall.opml?term={QUERY}&username=forusewithstandalone&search=1&center=1"}
     end
+    if id=="custom" then
+        return {id=id,name="Custom OPML",directoryCacheTtl=60,stationKey=function(item)
+            local hash=5381
+            for i=1,#item.url do hash=(hash*33+item.url:byte(i))%2147483647 end
+            return tostring(hash)
+        end}
+    end
     assert(id=="tunein","unknown OPML provider")
     -- No borrowed partner IDs, user location, account credentials or bypasses.
     local partner=options and options.partnerId

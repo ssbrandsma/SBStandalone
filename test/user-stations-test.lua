@@ -60,7 +60,7 @@ documents.empty = { schemaVersion=1, revision=3, stations={} }
 documents.unsupported = { schemaVersion=2, revision=4, stations={} }
 documents.invalid = false
 
-local loader = UserStations.new({ readFile=readFile, decoder=decode })
+local loader = UserStations.new({ path=UserStations.limits().path, readFile=readFile, decoder=decode })
 local list, err, changed = loader:reload()
 assert(not err and changed and #list == 6)
 assert(list[1].id == "a" and list[2].id == "b" and list[3].id == "z")
@@ -93,3 +93,26 @@ assert(#empty == 0)
 local limits = UserStations.limits()
 assert(limits.maxBytes == 256 * 1024 and limits.maxStations == 250)
 print("User station loader tests passed")
+
+documents.directories={schemaVersion=1,revision=10,stations={
+    station("legacy","Legacy",20), station("explicit","Explicit",30,{type="station"}),
+    station("directory","Directory",10,{type="opml",streamUrl="https://example.org?query=one",codec="invalid",logoFile="logo-123.png"}),
+    station("disabled-dir","Disabled",5,{type="opml",enabled=false}),
+    station("unknown","Unknown",1,{type="invalid"}), station("badcodec","Bad Codec",1,{codec={}}),
+}}
+current="directories";local mixed=loader:reload()
+assert(#mixed==3 and mixed[1].type=="opml" and mixed[1].url=="https://example.org/?query=one")
+assert(mixed[1].localLogoPath and mixed[1].codec=="auto")
+assert(mixed[2].type=="station" and mixed[3].type=="station")
+print("Mixed custom station/directory schema, defaults, order, artwork and invalid-row isolation passed")
+
+local open=io.open;local mounted=false
+io.open=function(path,...)
+ if path=="/proc/mounts" then return {lines=function() local done=false;return function() if done then return end;done=true;return mounted and "ubi0:sbdata /mnt/sbdata sbubifs rw 0 0" or "ubi0:ubifs /mnt/storage ubifs rw 0 0" end end,close=function() end} end
+ return open(path,...)
+end
+local dynamic=UserStations.new({readFile=function(path) return path:find("/mnt/sbdata/",1,true) and "valid" or "directories" end,decoder=decode})
+local internal=dynamic:reload();assert(internal[1].localLogoPath=="/mnt/storage/standalonebase/radio/logos/logo-123.png")
+mounted=true;local external=dynamic:reload();assert(external[6].localLogoPath=="/mnt/sbdata/config/radio/logos/logo-123.png")
+io.open=open
+print("Internal/extended storage configuration and uploaded-logo roots follow Base's active storage")

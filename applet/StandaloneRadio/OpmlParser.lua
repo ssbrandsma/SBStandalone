@@ -186,8 +186,12 @@ end
 local function convertOutline(outline)
 	local attr = {}
 	for key,value in pairs(outline.attr or {}) do attr[string.lower(key)] = value end
-	local children = childElements(outline, "outline")
+	if not attr.url then attr.url=attr.xmlurl end
+    if not attr.homepage then attr.homepage=attr.htmlurl end
+    local children = childElements(outline, "outline")
 	local entryType = string.lower(attr.type or "")
+    if entryType=="opml" or (entryType=="rss" and attr.xmlurl) then entryType="link" end
+    if #children>0 then entryType="directory" end
 	local item = {
 		title = (attr.text or attr.title or ""):sub(1,1024),
 		type = entryType ~= "" and entryType or (attr.url and "link" or "directory"),
