@@ -21,7 +21,7 @@ RadioBrowser.__index = RadioBrowser
 
 local API_HOST = "all.api.radio-browser.info"
 local API_BASE = "http://" .. API_HOST
-local USER_AGENT = "StandaloneRadio/0.9.8"
+local USER_AGENT = "StandaloneRadio/0.9.12"
 local CACHE_DIR = "/etc/squeezeplay/userpath/StandaloneRadio/cache/stations"
 
 local PAGE_SIZE = 250
@@ -76,6 +76,8 @@ local function toStation(item, countrycode)
 		hls = isOne(item.hls) or nil,
 		clickcount = tonumber(item.clickcount) or 0, votes = tonumber(item.votes) or 0,
 		countrycode = string.upper(trim(countrycode or item.countrycode)),
+		homepage = trim(item.homepage), country = trim(item.country),
+		language = trim(item.language), tags = trim(item.tags),
 	}
 	return Stations.normalize(station) and station or nil
 end
@@ -84,6 +86,7 @@ local function cacheRecord(station)
 	return {
 		station.stationuuid, station.name, station.url, station.favicon or "",
 		station.codec or "", station.bitrate or 0, station.clickcount or 0, station.votes or 0, station.hls and 1 or 0,
+		station.homepage or "", station.country or "", station.language or "", station.tags or "",
 	}
 end
 
@@ -93,6 +96,7 @@ local function recordStation(record, countrycode)
 		stationuuid = record[1], name = record[2], url = record[3], favicon = record[4],
 		codec = record[5], bitrate = record[6], clickcount = record[7], votes = record[8],
 		lastcheckok = 1, hls = record[9] or 0,
+		homepage = record[10], country = record[11], language = record[12], tags = record[13],
 	}, countrycode)
 end
 

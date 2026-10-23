@@ -114,7 +114,7 @@ respond(200, { success=true, generation=7 })
 client:activate({ id="radiofeeds:xyz", name="Station B", url="http://b/live" })
 equal(path(4), "/api/nowplaying/update")
 equal(requests[4].payload.track.id, "radio:radiofeeds:xyz")
-equal(requests[4].payload.track.title, nil)
+equal(requests[4].payload.track.title, "")
 equal(requests[4].payload.track.artwork_url, nil)
 respond(200, { success=true, generation=7 })
 
@@ -184,7 +184,7 @@ client2:updateMetadata("Old B - Old Song", b, 2)
 respond2(200, { success=true, generation=1 })
 equal(requests2[3].payload.track.station, "C")
 equal(published2, 0) -- stale A completion must not restage the native player
-equal(requests2[3].payload.track.title, nil)
+equal(requests2[3].payload.track.title, "")
 equal(requests2[3].payload.state, "buffering")
 equal(requests2[3].payload.track.artwork_url, "http://images.example/c.png")
 respond2(200, { success=true, generation=1 })
@@ -214,7 +214,7 @@ equal(client2:updateTrackArtwork("http://covers.example/old.jpg", c, 3,
 equal(#requests2, 7)
 client2:activate(b, 4)
 equal(requests2[8].payload.track.station, "B")
-equal(requests2[8].payload.track.title, nil)
+equal(requests2[8].payload.track.title, "")
 equal(requests2[8].payload.track.artwork_url, nil)
 respond2(200, { success=true, generation=1 })
 equal(client2:updateTrackArtwork("http://covers.example/c-delayed.jpg", c, 3,
@@ -262,5 +262,18 @@ equal(timed.revision,revision)
 equal(timed:updateTimedMetadata({title="Stale"},a,6),false)
 timed:updateTimedMetadata({title="Next"},a,7)
 equal(timed:_snapshot().track.artwork_url,timed.stationArtwork)
-equal(timed:_snapshot().track.album,nil)
+equal(timed:_snapshot().track.album,"")
+
+-- Declared directory quality stays separate from observed HTTP/ICY quality.
+timed.station={id="directory",name="Station",codec="MP3",bitrate=192,
+    homepage="https://example.org",tags="Rock",country="NL",description="Description",
+    observedAudio={codec="aac",bitrate_kbps=48}}
+snapshot=timed:_snapshot()
+equal(snapshot.station.audio.codec,"MP3")
+equal(snapshot.station.audio.bitrate_kbps,192)
+equal(snapshot.track.audio.codec,"aac")
+equal(snapshot.track.audio.bitrate_kbps,48)
+equal(snapshot.station.description,"Description")
+equal(snapshot.station.homepage,"https://example.org")
+equal(snapshot.station.genre,"Rock")
 print("StandaloneBase Now Playing client tests passed")

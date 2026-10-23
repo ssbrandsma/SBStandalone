@@ -26,7 +26,7 @@ SocketHttp = function()
         else request.options.headersSink({["Content-Type"]=request.status.mime}) end
     end}
 end
-RadioFeedsClient = {new=function() return {resolveStation=function(_, station, callback, force)
+OpmlClient = {new=function() return {resolveStation=function(_, station, callback, force)
     assert(force)
     callback(resolution)
 end} end}
@@ -50,6 +50,9 @@ assert(wire[#wire] == "HEAD /hls/http/lsn.lv/bbcradio.m3u8?station=bbc_radio_nan
 statuses = {{code=200, mime="audio/mpeg"}}
 player:_resolveStreamRedirect({url="http://example.com/live;param=one?token=a%2Fb#fragment"}, 1, function(station) selected=station end)
 assert(wire[#wire] == "HEAD /live;param=one?token=a%2Fb", "preserve params but never send fragments")
+statuses={{code=200,mime="audio/aac"}}
+player:_resolveStreamRedirect({provider="tunein",url="https://example.com/unknown",declaredFormats="unknown"},1,function(station) selected=station end)
+assert(selected and selected.codec=="aac" and selected.declaredCodec==nil)
 statuses = {{code=415, mime="text/plain"}}
 selected = "unset"
 player:_resolveStreamRedirect(original, 1, function(station) selected=station end)

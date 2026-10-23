@@ -28,6 +28,17 @@ local player = setmetatable({ownsPlayback=true, generation=1,
 }, {__index=StreamPlayer})
 player:_installHooks(playback)
 player:_installHooks(playback) -- Hook installation must be idempotent.
+local tracedHeaders, tracedClose
+player.streamTrace={headers=function(_,status,headers) tracedHeaders={status,headers} end,
+    finish=function(_,reason,bytes) tracedClose={reason,bytes} end}
+player._handleDisconnect=function() end
+-- Keep the playback-state callbacks out of this header-only trace check.
+player.intentionalStop=true
+playback:_streamHttpHeaders("HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\n\r\n")
+assert(tracedHeaders[1]==200 and tracedHeaders[2]["Content-Type"]=="audio/mpeg")
+playback:_streamDisconnect("timeout",false)
+assert(tracedClose[1]=="timeout" and tracedClose[2]=="unknown")
+player.intentionalStop=false
 assert(proto:send({opcode="HELO"}, true)=="sent")
 assert(player.ownsPlayback and stops==0 and handed==0)
 assert(proto:send({opcode="STAT"})=="sent")

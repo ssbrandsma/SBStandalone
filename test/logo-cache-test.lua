@@ -15,6 +15,7 @@ package.preload["applets.StandaloneRadio.Resolver"] = function()
 end
 package.preload["applets.StandaloneRadio.UrlTransport"] = function()
     return {forRequest=function(url) return {host="example.com", port=80, path=url} end,
+        redact=function(url) return url end,
         renderSvgUrl=function() return "http://127.0.0.1/rendered.png" end}
 end
 package.preload["jive.net.SocketHttp"] = function()
@@ -60,4 +61,9 @@ responses = {{headers={}, err="timeout"}}
 assert(download() == nil and cache.active.station == nil)
 responses = {{headers={["Content-Type"]="image/jpeg"}, body="JPEG unchanged"}}
 assert(download() == "temporary-logo" and writes[3] == "JPEG unchanged")
+cache.log.info=function() end
+responses={{headers={["Content-Type"]="image/png"},body="TuneIn PNG"}}
+local tuneinLogo
+cache:ensure({source="tunein",id="tunein:s1",stationuuid="tunein-s1",favicon="http://example.com/logo"},function(path) tuneinLogo=path end)
+assert(tuneinLogo and writes[4]=="TuneIn PNG")
 print("LogoCache PNG/JPEG, SVG MIME retry and failure/retry tests passed")

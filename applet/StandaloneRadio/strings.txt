@@ -145,3 +145,27 @@ STANDALONE_RADIO_STATE_CONNECTION_LOST
 STANDALONE_RADIO_STATE_RECONNECTING
 	EN	Reconnecting...
 	NL	Opnieuw verbinden...
+
+STANDALONE_RADIO_TUNEIN
+	EN	TuneIn
+	NL	TuneIn
+
+STANDALONE_RADIO_OPML_FAILED
+	EN	Unable to load directory. Select to retry.
+	NL	Kan de gids niet laden. Selecteer om opnieuw te proberen.
+
+STANDALONE_RADIO_SAVE_FAVORITE
+	EN	Save to My Radio Stations
+	NL	Opslaan in Mijn radiozenders
+
+STANDALONE_RADIO_FAVORITE_SAVED
+	EN	Saved to My Radio Stations
+	NL	Opgeslagen in Mijn radiozenders
+
+STANDALONE_RADIO_PRESET
+	EN	Preset
+	NL	Voorkeuze
+
+STANDALONE_RADIO_OPML_UNTITLED
+	EN	Untitled
+	NL	Zonder titel

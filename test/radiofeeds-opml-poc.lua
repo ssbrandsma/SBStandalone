@@ -1,6 +1,6 @@
 package.path = "./?.lua;./applet/StandaloneRadio/?.lua;" .. package.path
 
-local parser = require("RadioFeedsOpml")
+local parser = require("OpmlParser")
 
 local fixturePath = arg and arg[1] or "test/fixtures/radiofeeds-root.opml"
 local fixture = assert(io.open(fixturePath, "rb"))

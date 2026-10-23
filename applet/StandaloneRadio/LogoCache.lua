@@ -159,8 +159,14 @@ end
 
 
 function LogoCache:_download(station, uuid, url, tempPath, callback, svgRetry)
+	local trace=UrlTransport.beginTrace and UrlTransport.beginTrace("logo:"..tostring(station.id),url)
+	if trace then
+		local original=callback
+		callback=function(path) trace:result(path and "decoded and cached" or "logo unavailable"); return original(path) end
+	end
 	local target, targetErr = UrlTransport.forRequest(url, self.log)
 	if not target then
+		if trace then trace:finish(targetErr) end
 		self.active[uuid] = nil
 		self.log:warn("StandaloneRadio: favicon transport failed: ", tostring(targetErr))
 		callback(nil)
@@ -168,6 +174,7 @@ function LogoCache:_download(station, uuid, url, tempPath, callback, svgRetry)
 	end
 	self.resolver:resolve(target.host, function(ip)
 		if not ip then
+			if trace then trace:finish("DNS failed: "..target.host) end
 			self.active[uuid] = nil
 			self.log:warn("StandaloneRadio: favicon DNS failed")
 			callback(nil)
@@ -215,8 +222,9 @@ function LogoCache:_download(station, uuid, url, tempPath, callback, svgRetry)
 		end, "GET", target.path, { headers = {
 			Host = target.hostHeader, Accept = "image/png,image/jpeg,*/*", Connection = "close",
 		}, headersSink = function(headers) responseHeaders = headers end })
+		request._standaloneTrace=trace
 		local socket = SocketHttp(jnt, ip, target.port, "StandaloneRadioLogo")
-		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.8" } end
+		socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.12" } end
 		self.http = socket
 		local ok, fetchErr = pcall(function() socket:fetch(request) end)
 		if not ok then
@@ -250,7 +258,7 @@ end
 function LogoCache:ensure(station, callback)
 	callback = callback or function() end
 	if not station or (station.source ~= "radiobrowser" and station.source ~= "radiofeeds"
-		and station.source ~= "user") then
+		and station.source ~= "user" and station.source ~= "tunein") then
 		callback(nil)
 		return
 	end
@@ -286,7 +294,7 @@ function LogoCache:ensure(station, callback)
 		return
 	end
 
-	self.log:info("StandaloneRadio: favicon for ", tostring(station.name or station.id), " = ", favicon)
+	self.log:info("StandaloneRadio: favicon for ", tostring(station.name or station.id), " = ", UrlTransport.redact(favicon))
 	if not isHttpUrl(favicon) then
 		self.log:warn("StandaloneRadio: favicon download failed; invalid URL")
 		callback(nil)

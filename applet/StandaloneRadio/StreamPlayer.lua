@@ -11,7 +11,7 @@ local Framework = require("jive.ui.Framework")
 local Task = require("jive.ui.Task")
 local Timer = require("jive.ui.Timer")
 local UrlTransport = require("applets.StandaloneRadio.UrlTransport")
-local RadioFeedsClient = require("applets.StandaloneRadio.RadioFeedsClient")
+local OpmlClient = require("applets.StandaloneRadio.OpmlClient")
 local HlsMetadata = require("applets.StandaloneRadio.HlsMetadata")
 local decode = require("squeezeplay.decode")
 local jnt = jnt
@@ -443,7 +443,7 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 					if redirectCount >= MAX_STREAM_REDIRECTS then
 						self:_finishRedirectProbe(token, nil, callback); return
 					end
-					self.playlistResolver = self.playlistResolver or RadioFeedsClient.new({log=self.log, httpsProxyStatus=self.httpsProxyStatus})
+					self.playlistResolver = self.playlistResolver or OpmlClient.new({log=self.log, httpsProxyStatus=self.httpsProxyStatus})
 					self.playlistResolver:resolveStation(station, function(resolved, err)
 						if self.generation ~= generation or self.redirectProbeToken ~= token then return end
 						if not resolved or (resolved.url == station.url and not resolved.hls) then
@@ -490,6 +490,14 @@ function StreamPlayer:_probeStreamRedirect(station, generation, redirectCount, t
 
 				if status and status >= 200 and status < 300 then
 				self.log:info("StandaloneRadio: redirect probe final URL=", UrlTransport.redact(station.url))
+					if station.provider then
+						local mime=contentType and contentType:match("^[^;]+")
+						local codecs={["audio/aac"]="aac",["audio/aacp"]="aac+",["audio/mpeg"]="mp3",["audio/ogg"]="ogg",["application/ogg"]="ogg",["audio/flac"]="flac"}
+						if codecs[mime] then
+							local copy={};for key,value in pairs(station) do copy[key]=value end
+							copy.codec=codecs[mime];station=copy
+						end
+					end
 					self:_finishRedirectProbe(token, station, callback)
 					return
 				end
@@ -564,6 +572,24 @@ function StreamPlayer:_installHooks(playback)
 			local headerText = type(headers) == "string" and headers or tostring(headers)
 		local statusLine = string.match(headerText, "^([^\r\n]+)")
 			local status = tonumber(string.match(statusLine or "", "^HTTP/%d%.%d%s+(%d%d%d)"))
+			if self.desiredStation and (status == 200 or string.match(statusLine or "", "^ICY%s+200")) then
+				local lower = string.lower(headerText)
+				local contentType = string.match(lower, "\ncontent%-type:%s*([^;%s\r\n]+)")
+				local codecs = { ["audio/mpeg"]="mp3", ["audio/mp3"]="mp3",
+					["audio/aac"]="aac", ["audio/aacp"]="aac",
+					["audio/flac"]="flc", ["audio/x-flac"]="flc",
+					["audio/ogg"]="ogg" }
+				local bitrate = tonumber(string.match(lower, "\nicy%-br:%s*(%d+)"))
+				self.desiredStation.observedAudio = {
+					codec = codecs[contentType],
+					bitrate_kbps = bitrate and bitrate > 0 and bitrate <= 100000 and bitrate or nil,
+				}
+			end
+			if self.streamTrace then
+				local values={}
+				for name,value in headerText:gmatch("\r?\n([^:\r\n]+):%s*([^\r\n]*)") do values[name]=value end
+				self.streamTrace:headers(status or tonumber((statusLine or ""):match("^ICY%s+(%d+)")),values)
+			end
 			if self.desiredStation and self.desiredStation.hls and status==200 then
 				local session=string.match(string.lower(headerText), "x%-sb%-hls%-session:%s*([0-9a-f]+)")
 				self:_startHlsMetadata(session)
@@ -640,6 +666,7 @@ function StreamPlayer:_installHooks(playback)
 
 	local originalDisconnect = playback._streamDisconnect
 	playback._streamDisconnect = function(instance, reason, flush)
+		if self.streamTrace then self.streamTrace:finish(tostring(reason or "disconnected"),"unknown") end
 		originalDisconnect(instance, reason, flush)
 		self:_handleDisconnect(reason, flush)
 	end
@@ -656,6 +683,7 @@ function StreamPlayer:_begin(station, reconnect)
 	self.generation = self.generation + 1
 	local generation = self.generation
 	self.desiredStation = station
+	station.observedAudio = nil
 	self.redirectCount = self.redirectCount or 0
 	self.pendingStation = station
 	self.currentMetadata = nil
@@ -705,11 +733,14 @@ function StreamPlayer:_begin(station, reconnect)
 		end
 		self.log:info("StandaloneRadio: selected ", playStation.id)
 		self.log:info("StandaloneRadio: resolving playback host ", networkStation.host)
+		local trace=UrlTransport.beginTrace and UrlTransport.beginTrace("radio-stream:"..tostring(playStation.id),playStation.url)
 		self.resolver:resolve(networkStation.host, function(ip)
 			if not self:_isCurrent(generation, playStation) then
+				if trace then trace:finish("cancelled","unknown") end
 				return
 			end
 			if not ip then
+				if trace then trace:finish("DNS failed: "..networkStation.host,"unknown") end
 				self.pendingStation = nil
 				self:_notifyState(playStation, "FAILED", false)
 				if reconnect then
@@ -722,6 +753,7 @@ function StreamPlayer:_begin(station, reconnect)
 			self.intentionalStop = true
 			playback:stopInternal()
 			self.intentionalStop = false
+			self.streamTrace=trace
 			player:incrementSequenceNumber()
 
 			local decoder = decoderFor(playStation)
@@ -730,6 +762,7 @@ function StreamPlayer:_begin(station, reconnect)
 			playback.header = "GET " .. networkStation.path .. " HTTP/1.0\r\n" ..
 				"Host: " .. networkStation.hostHeader .. "\r\n" ..
 				"User-Agent: SqueezePlay StandaloneRadio\r\n" ..
+				(trace and ("X-SB-Trace-Id: "..trace.id.."\r\n") or "") ..
 				"Icy-MetaData: 1\r\n" ..
 				"Accept: " .. decoder.accept .. "\r\n" ..
 				(playStation.hls and ("X-SB-HLS-Codec: " .. (decoder.mode == "a" and "aac" or "mp3") .. "\r\n") or "") ..

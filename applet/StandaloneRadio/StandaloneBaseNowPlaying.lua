@@ -30,6 +30,11 @@ local function trim(value)
 	return tostring(value or ""):gsub("^%s*(.-)%s*$", "%1")
 end
 
+local function metadataText(value, maximum)
+	if type(value) ~= "string" or value == "" or #value >= maximum then return nil end
+	return value
+end
+
 local function safeStationId(station)
 	local uuid = trim(station and station.stationuuid)
 	if uuid ~= "" then return "radio:" .. trim(station.source or "station") .. ":" .. uuid end
@@ -105,17 +110,36 @@ function Client:_snapshot()
 	local title, artist = StreamMetadata.parse(self.metadata)
 	if self.timedMetadata then title=self.timedMetadata.title; artist=self.timedMetadata.artist end
 	local artwork = self.trackArtwork or self.stationArtwork
+	local declaredCodec=station.codec
+	if station.provider then declaredCodec=station.declaredCodec end
 	return {
 		state = self.desiredState or "buffering",
 		live = true,
 		position_ms = 0,
+		-- Directory values are declared station properties, not measured stream
+		-- quality. Keep them separate from observed track.audio values.
+		station = {
+			id = safeStationId(station), name = stationName(station),
+			description = metadataText(station.description or station.programDescription, 256),
+			homepage = metadataText(station.homepage, 384),
+			country = metadataText(station.country or station.countrycode, 96),
+			language = metadataText(station.language, 96),
+			genre = metadataText(station.tags or station.genre, 256),
+			logo = metadataText(self.stationArtwork, 384),
+			stream_url = metadataText(station.url, 384),
+			audio = {
+				codec = metadataText(declaredCodec, 32),
+				bitrate_kbps = tonumber(station.bitrate),
+			},
+		},
 		track = {
 			id = safeStationId(station),
 			station = stationName(station),
-			title = title,
-			artist = artist,
-			album = self.timedMetadata and self.timedMetadata.album or nil,
+			title = title or station.catalogPlaying or "",
+			artist = artist or "",
+			album = self.timedMetadata and self.timedMetadata.album or "",
 			artwork_url = artwork,
+			audio = station.observedAudio or {},
 		},
 	}
 end
@@ -159,7 +183,7 @@ function Client:_nativeRequest(method, path, payload, callback)
 		end
 	end
 	local socket = SocketHttp(jnt, self.host, self.port, "StandaloneRadioNowPlayingAPI")
-	socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.8" } end
+	socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.12" } end
 	self.http = socket
 	local ok, err = pcall(function() socket:fetch(request) end)
 	if not ok then finish(nil, nil, tostring(err)) end
@@ -394,6 +418,11 @@ function Client:updateState(state, station, stationGeneration)
 	end
 	local mapped = STATE_MAP[state] or state
 	if not mapped then return end
+	if station and self.station and safeStationId(station) == safeStationId(self.station) then
+		local oldAudio, newAudio = self.station.observedAudio or {}, station.observedAudio or {}
+		if oldAudio.codec ~= newAudio.codec or oldAudio.bitrate_kbps ~= newAudio.bitrate_kbps then self:_bump() end
+		self.station = station
+	end
 	self:_debug("state=", tostring(state), " mapped=", tostring(mapped),
 		" station=", station and safeStationId(station) or "none",
 		" stationGeneration=", tostring(self.stationGeneration))

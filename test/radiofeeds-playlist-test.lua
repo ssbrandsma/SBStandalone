@@ -30,7 +30,7 @@ end
 package.preload["applets.StandaloneRadio.Resolver"] = function()
     return {new=function() return {resolve=function(_, host, callback) callback("203.0.113.1") end} end}
 end
-package.preload["applets.StandaloneRadio.RadioFeedsOpml"] = function() return {} end
+package.preload["applets.StandaloneRadio.OpmlParser"] = function() return {} end
 package.preload["applets.StandaloneRadio.Stations"] = function()
     assert(loadfile("applet/StandaloneRadio/Stations.lua"))("applets.StandaloneRadio.Stations")
     return package.loaded["applets.StandaloneRadio.Stations"]
@@ -41,9 +41,9 @@ package.preload["applets.StandaloneRadio.UrlTransport"] = function()
         return {host=parsed.host, hostHeader=parsed.host, port=80, path=parsed.path}
     end, redact=function(url) return url end}
 end
-assert(loadfile("applet/StandaloneRadio/RadioFeedsClient.lua"))("RadioFeedsPlaylistTest")
+assert(loadfile("applet/StandaloneRadio/OpmlClient.lua"))("RadioFeedsPlaylistTest")
 local module = package.loaded.RadioFeedsPlaylistTest
-local client = module.new({log={info=function() end, warn=function() end}})
+local client = module.new({provider=require("applets.StandaloneRadio.OpmlProviders").get("radiofeeds"),log={info=function() end, warn=function() end}})
 local calls = 0
 client:_fetch("http://example.com/a.m3u", "*/*", 65536, 0, function(body, err, mime, effectiveUrl)
     assert(body == "http://example.com/live.mp3" and not err, tostring(body) .. ": " .. tostring(err))
@@ -135,7 +135,7 @@ local file = assert(io.open("applet/StandaloneRadio/StandaloneRadioApplet.lua"))
 local source = file:read("*a")
 file:close()
 local method = assert(source:match("(function _playStation%b().-)function _assignPreset"))
-RadioFeedsClient = module
+OpmlClient = module
 UrlTransport = {redact=function(url) return url end}
 log = {warn=function() end}
 _logInfo = function() end

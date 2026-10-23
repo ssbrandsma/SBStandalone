@@ -64,7 +64,7 @@ The live root is OPML 1.1 declared as ISO-8859-1; directory/station documents ha
 
 ## Proof of concept
 
-`applet/StandaloneRadio/RadioFeedsOpml.lua` parses the XML with `lxp.lom`, validates the OPML root/body, and converts the LOM tree into applet-owned objects before any UI code sees it:
+`applet/StandaloneRadio/OpmlParser.lua` parses the XML with `lxp.lom`, validates the OPML root/body, and converts the LOM tree into applet-owned objects before any UI code sees it:
 
 ```lua
 {
@@ -116,9 +116,9 @@ The first run also identified a firmware-relevant Lua 5.1 detail: globals used a
 Keep the transport, parsing and UI layers separate:
 
 ```text
-RadioFeedsClient HTTP request
+OpmlClient HTTP request
     -> validate status/content type and response size
-    -> RadioFeedsOpml.parse(response body)
+    -> OpmlParser.parse(response body)
     -> ordinary directory/station objects
     -> existing StandaloneRadio menu components
 ```

@@ -37,9 +37,9 @@ package.preload["lxp.lom"] = function()
 	end }
 end
 
-assert(loadfile("./applet/StandaloneRadio/RadioFeedsOpml.lua"))(
-	"applets.StandaloneRadio.RadioFeedsOpml")
-local parser = package.loaded["applets.StandaloneRadio.RadioFeedsOpml"]
+assert(loadfile("./applet/StandaloneRadio/OpmlParser.lua"))(
+	"applets.StandaloneRadio.OpmlParser")
+local parser = package.loaded["applets.StandaloneRadio.OpmlParser"]
 
 local xml = [[<opml><head><title>R&amp;D &eacute;missions</title></head><body>
 <outline text="Fran&ccedil;ais &amp; Espa&ntilde;ol &#224; &#xE9; déjà &unknown; &broken &amp;agrave;" id="dir&amp;eacute;">

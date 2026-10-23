@@ -72,6 +72,31 @@ Applet Installer on stock Radio firmware can remove an installed repository appl
 
 ### Build And Publish
 
+The source now shares one OPML navigator between RadioFeeds and TuneIn, with
+search, bounded stream resolution and provider favorites/presets. See
+[`docs/generic-opml-navigator.md`](docs/generic-opml-navigator.md) for architecture,
+verified endpoints, access conditions, tests and the remaining device checklist.
+Run the Lua fixtures with `python test/run-tests.py` (requires Lupa and the
+LuaSocket URL module; use `--socket-url` for a different location).
+
+With Extended Storage enabled, install Standalone Base **0.5.7 or newer**
+before Standalone Radio 0.9.9. Base fixes the stock installer's destination
+selection and ZIP extraction so the applet appears in the Home menu.
+
+Radio **0.9.12** moves shared OPML code into clearly named client/parser modules
+and isolates provider-specific behavior while preserving station IDs and presets.
+
+Radio **0.9.11** adds shared OPML browsing for RadioFeeds and TuneIn,
+including search, stream resolution, favorites and hardware presets. TuneIn
+uses its HTTP directory endpoint for compatibility with the radio TLS stack.
+
+Radio **0.9.10** adds request IDs and diagnostics for station streams, DNS,
+logos and track artwork, and uses `Standalone/0.9.10` for RadioFeeds requests.
+Full `HTTPTRACE` logging to `/var/log/messages` requires the updated Base build
+with `HttpTrace.lua`. That Base development update is deployed on the test
+radio; the published Base 0.5.7 ZIP does not include it or the final installer
+lifecycle fix yet.
+
 For the complete release and VPS publication procedure, including metadata
 updates, backups, container restart, verification, and rollback, see
 [`DEPLOYMENT.md`](DEPLOYMENT.md).

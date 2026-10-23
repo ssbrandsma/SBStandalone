@@ -3,6 +3,7 @@ local setmetatable, tonumber, tostring, type = setmetatable, tonumber, tostring,
 local string = require("string")
 
 local Process = require("jive.net.Process")
+local traceOk, HttpTrace = pcall(require,"applets.StandaloneBase.HttpTrace")
 
 local jnt = jnt
 
@@ -84,6 +85,11 @@ end
 
 
 function Resolver:resolve(host, callback)
+	local original=callback
+	callback=function(ip,method,err)
+		if traceOk then HttpTrace.dns(host,ip,err) end
+		return original(ip,method,err)
+	end
 	if not isValidHost(host) then
 		self.log:warn("StandaloneRadio: invalid DNS host ", tostring(host))
 		callback(nil, "invalid-host", "invalid host")

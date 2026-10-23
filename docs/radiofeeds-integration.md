@@ -7,7 +7,7 @@ StandaloneRadio's root menu exposes independent directory sources as sibling ite
 ```text
 StandaloneRadio root
     -> Radio Browser -> existing RadioBrowser implementation
-    -> RadioFeeds UK & Ireland -> RadioFeedsClient -> RadioFeedsOpml
+    -> RadioFeeds UK & Ireland -> OpmlClient -> OpmlParser
                                                -> common station model
                                                -> existing playback/presets/artwork
 ```
@@ -16,7 +16,7 @@ Adding a future `My Stations` source requires one root item and its own loader; 
 
 ## Network behavior
 
-`RadioFeedsClient` starts at:
+`OpmlClient` starts at:
 
 ```text
 http://www.radiofeeds.co.uk/MyPicks/menu.opml?username=forusewithstandalone
@@ -50,7 +50,7 @@ holds the search endpoint, so this entry does not depend on the upstream menu
 including a search outline. The equivalent upstream root search entry is hidden
 to avoid duplication. The keyboard opens an asynchronous results window using
 the same station-list renderer as Radio Browser Search. Parsed OPML audio entries
-are normalized through `RadioFeedsClient:toStation`; nested groups are flattened
+are normalized through `OpmlClient:toStation`; nested groups are flattened
 and section headings are omitted. Selecting a result uses normal RadioFeeds
 playback and preset handling. Empty results and request errors have explicit
 menu messages, and older requests cannot replace a newer search's results.

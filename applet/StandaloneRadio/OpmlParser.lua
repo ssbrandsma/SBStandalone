@@ -1,5 +1,5 @@
 local lom = require("lxp.lom")
-local ipairs, pcall, tonumber, type = ipairs, pcall, tonumber, type
+local ipairs, pairs, pcall, tonumber, type = ipairs, pairs, pcall, tonumber, type
 local string, table, tostring = string, table, tostring
 
 module(...)
@@ -133,7 +133,7 @@ local function prepareVisibleFields(xml)
 	local function attributes(prefix, quote, value)
 		local name = prefix:match("([%w_:%-]+)%s*=%s*$") or ""
 		name = string.lower(name:match("([^:]+)$") or name)
-		if name == "text" or name == "title" then
+		if name == "text" or name == "title" or name == "subtext" or name == "playing" or name == "current_track" or name == "description" then
 			value = visible(value)
 		end
 		return prefix .. quote .. value .. quote
@@ -184,12 +184,13 @@ end
 
 
 local function convertOutline(outline)
-	local attr = outline.attr or {}
+	local attr = {}
+	for key,value in pairs(outline.attr or {}) do attr[string.lower(key)] = value end
 	local children = childElements(outline, "outline")
 	local entryType = string.lower(attr.type or "")
 	local item = {
-		title = attr.text or attr.title or "",
-		type = (#children > 0 and entryType == "") and "directory" or entryType,
+		title = (attr.text or attr.title or ""):sub(1,1024),
+		type = entryType ~= "" and entryType or (attr.url and "link" or "directory"),
 	}
 
 	item.url = attr.URL or attr.url
@@ -198,6 +199,18 @@ local function convertOutline(outline)
 	if attr.image then item.image = attr.image end
 	if attr.codec then item.codec = attr.codec end
 	if attr.bitrate then item.bitrate = tonumber(attr.bitrate) end
+	if item.bitrate and item.bitrate<=0 then item.bitrate=nil end
+	item.metadata = {}
+	local count=0
+	for key,value in pairs(attr) do
+		count=count+1
+		if count<=32 and #key<=64 and type(value)=="string" then item.metadata[key]=value:sub(1,4096) end
+	end
+	for _,key in ipairs({"guide_id","subtext","description","formats","playing","current_track","homepage","genre_id","genre","reliability","preset_id","now_playing_id","show_id","item"}) do
+		if attr[key] then item[key]=attr[key]:sub(1,1024) end
+	end
+	local scheme=item.url and item.url:match("^(%a[%w+.-]*):")
+	if item.url and (#item.url>4096 or item.url:find("[%s%z]") or (scheme and scheme~="http" and scheme~="https")) then item.url=nil end
 
 	if #children > 0 then
 		item.children = {}
@@ -210,30 +223,47 @@ local function convertOutline(outline)
 end
 
 
-function parse(xml)
+function parse(xml, limits)
 	if type(xml) ~= "string" or xml == "" then
-		return nil, "RadioFeeds OPML is empty"
+		return nil, "OPML is empty"
+	end
+	limits=limits or {}
+	if #xml>(limits.bytes or 262144) then return nil,"OPML exceeds size limit" end
+	-- Reject DTDs/entities and bound the tree before LuaExpat allocates it.
+	-- This lexical pass creates no second XML tree and never resolves entities.
+	if xml:upper():find("<!DOCTYPE",1,true) or xml:upper():find("<!ENTITY",1,true) then return nil,"OPML DTDs are unsupported" end
+	local depth,count=0,0
+	for closing,name,tail in xml:gmatch("<(/?)([%w_:]+)([^>]-)>") do
+		if closing=="/" then depth=depth-1
+		else
+			count=count+1
+			if count>(limits.nodes or 1024) then return nil,"OPML exceeds node limit" end
+			if not tail:match("/%s*$") then depth=depth+1 end
+			if depth>(limits.depth or 32) then return nil,"OPML exceeds nesting limit" end
+		end
 	end
 
 	local ok, tree, err = pcall(lom.parse, prepareVisibleFields(xml))
 	if not ok then
-		return nil, "Invalid RadioFeeds XML: " .. tostring(tree)
+		return nil, "Invalid OPML XML: " .. tostring(tree)
 	end
 	if not tree then
-		return nil, "Invalid RadioFeeds XML: " .. tostring(err)
+		return nil, "Invalid OPML XML: " .. tostring(err)
 	end
 	if localName(tree.tag) ~= "opml" then
-		return nil, "RadioFeeds response root is not OPML"
+		return nil, "OPML response root is not OPML"
 	end
 
 	local body = firstChild(tree, "body")
 	if not body then
-		return nil, "RadioFeeds OPML has no body"
+		return nil, "OPML has no body"
 	end
 
-	local result = { title = "RadioFeeds", children = {} }
+	local result = { title = "OPML", children = {} }
 	local head = firstChild(tree, "head")
 	local title = head and firstChild(head, "title")
+	local status=head and firstChild(head,"status")
+	if status and tonumber(textContent(status)) and tonumber(textContent(status))~=200 then return nil,"OPML service status "..textContent(status) end
 	if title and textContent(title) ~= "" then
 		result.title = textContent(title)
 	end

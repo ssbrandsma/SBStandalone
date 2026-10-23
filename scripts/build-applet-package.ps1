@@ -50,8 +50,10 @@ $requiredRootFiles = @(
 	"NativeNowPlaying.lua",
 	"PresetStore.lua",
 	"RadioBrowser.lua",
-	"RadioFeedsClient.lua",
-	"RadioFeedsOpml.lua",
+	"OpmlClient.lua",
+	"OpmlParser.lua",
+	"OpmlProviders.lua",
+	"OpmlNavigator.lua",
 	"Resolver.lua",
 	"StandaloneRadioApplet.lua",
 	"StandaloneRadioMeta.lua",
@@ -99,12 +101,20 @@ try {
 	}
 
 	Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
-	Push-Location $stageDirectory
+	Add-Type -AssemblyName System.IO.Compression
+	Add-Type -AssemblyName System.IO.Compression.FileSystem
+	$archive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
 	try {
-		Compress-Archive -Path * -DestinationPath $zipPath -CompressionLevel Optimal
+		$archive.CreateEntry("images/") | Out-Null
+		foreach ($file in $requiredRootFiles) {
+			[System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, (Join-Path $stageDirectory $file), $file, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+		}
+		foreach ($file in $requiredImageFiles) {
+			[System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, (Join-Path $stageDirectory "images\$file"), "images/$file", [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+		}
 	}
 	finally {
-		Pop-Location
+		$archive.Dispose()
 	}
 
 	if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
@@ -113,7 +123,9 @@ try {
 
 	$archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
 	try {
-		$zipEntries = @($archive.Entries | Where-Object { -not $_.FullName.EndsWith('/') } | ForEach-Object { $_.FullName.Replace('\', '/') })
+		$allEntries = @($archive.Entries | ForEach-Object { $_.FullName })
+		if ($allEntries | Where-Object { $_.Contains('\') }) { Fail "ZIP contains Windows path separators" }
+		$zipEntries = @($allEntries | Where-Object { -not $_.EndsWith('/') })
 	}
 	finally {
 		$archive.Dispose()
@@ -160,7 +172,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Improve RadioFeeds and HLS playback, metadata and artwork integration; restore playback control when switching LMS servers.")
+	$xml = $xml.Replace("Applet Installer package release $version.", "Separate shared OPML transport and parsing from provider-specific behavior; preserve RadioFeeds and TuneIn browsing, playback and presets.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

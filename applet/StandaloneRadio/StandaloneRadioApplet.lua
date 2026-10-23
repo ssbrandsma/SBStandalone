@@ -1,4 +1,4 @@
-local ipairs, os, pairs, tostring = ipairs, os, pairs, tostring
+local assert, ipairs, os, pairs, tostring = assert, ipairs, os, pairs, tostring
 
 local oo = require("loop.simple")
 local table = require("table")
@@ -21,7 +21,9 @@ local HttpsProxyStatus = require("applets.StandaloneRadio.HttpsProxyStatus")
 local Countries = require("applets.StandaloneRadio.Countries")
 local PresetStore = require("applets.StandaloneRadio.PresetStore")
 local RadioBrowser = require("applets.StandaloneRadio.RadioBrowser")
-local RadioFeedsClient = require("applets.StandaloneRadio.RadioFeedsClient")
+local OpmlNavigator = require("applets.StandaloneRadio.OpmlNavigator")
+local OpmlClient = require("applets.StandaloneRadio.OpmlClient")
+local OpmlProviders = require("applets.StandaloneRadio.OpmlProviders")
 local Stations = require("applets.StandaloneRadio.Stations")
 local StreamPlayer = require("applets.StandaloneRadio.StreamPlayer")
 local StandaloneBaseNowPlaying = require("applets.StandaloneRadio.StandaloneBaseNowPlaying")
@@ -78,7 +80,9 @@ function _ensureComponents(self)
 		httpsProxyStatus = self.httpsProxyStatus,
 	})
 	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1)
-	self.radioFeeds = RadioFeedsClient.new({ log = log, httpsProxyStatus = self.httpsProxyStatus })
+	self.radioFeeds = OpmlClient.new({log=log,httpsProxyStatus=self.httpsProxyStatus,provider=OpmlProviders.get("radiofeeds")})
+    self.opmlClients={radiofeeds=self.radioFeeds,tunein=OpmlClient.new({log=log,httpsProxyStatus=self.httpsProxyStatus,
+        provider=OpmlProviders.get("tunein",{partnerId=settings.tuneInPartnerId})})}
 	self.trackArtwork = TrackArtwork.new({
 		log = log,
 		onArtworkUrl = function(station, streamTitle, url, stationGeneration)
@@ -168,6 +172,7 @@ end
 -- active from boot until SqueezePlay exits.
 function free(self)
 	if self.nativeNowPlaying then self.nativeNowPlaying:shutdown() end
+	if self.activeOpmlNavigator then self.activeOpmlNavigator:close() end
 	return false
 end
 
@@ -215,17 +220,20 @@ function _playStation(self, station)
 	end
 
 	self.playlistRequestGeneration = (self.playlistRequestGeneration or 0) + 1
-	if self.radioFeeds.cancelPlaylist then self.radioFeeds:cancelPlaylist() end
+	if self.playlistClient and self.playlistClient.cancelPlaylist then self.playlistClient:cancelPlaylist() end
+    if self.radioFeeds.cancelPlaylist then self.radioFeeds:cancelPlaylist() end
 	local playlistGeneration = self.playlistRequestGeneration
-	if not station.hls and RadioFeedsClient.isPlaylistUrl(station.url) then
-		self.radioFeeds:resolveStation(station, function(resolved, err, code)
+	if station.requiresResolution or (not station.hls and OpmlClient.isPlaylistUrl(station.url)) then
+        local resolver=self.opmlClients and self.opmlClients[station.provider] or self.radioFeeds
+        self.playlistClient=resolver
+		resolver:resolveStation(station, function(resolved, err, code)
 			if self.playlistRequestGeneration ~= playlistGeneration then return end
 			if not resolved then
-				log:warn("StandaloneRadio: RadioFeeds playlist resolution failed: ", tostring(err))
+				log:warn("StandaloneRadio: OPML playlist resolution failed: ", tostring(err))
 				self:_showPopup(self:string(code == "hls_unsupported" and "STANDALONE_RADIO_HLS_UNSUPPORTED" or "STANDALONE_RADIO_FAILED"), 5000)
 				return
 			end
-			_logInfo("RadioFeeds playlist resolved ", UrlTransport.redact(station.url), " -> ", UrlTransport.redact(resolved.url))
+			_logInfo("OPML playlist resolved ", UrlTransport.redact(station.url), " -> ", UrlTransport.redact(resolved.url))
 			self:_playStation(resolved)
 		end)
 		return
@@ -295,10 +303,14 @@ function _refreshMenu(self)
 				self:radioFeedsMenu(self.radioFeeds:rootUrl(), self:string("STANDALONE_RADIO_RADIOFEEDS"))
 			end,
 		},
+        {
+            text = self:string("STANDALONE_RADIO_TUNEIN"),sound="SELECT",weight=3,
+            callback=function() self:tuneInMenu() end,
+        },
 		{
 			text = self:string("STANDALONE_RADIO_USER_STATIONS"),
 			sound = "SELECT",
-			weight = 3,
+			weight = 4,
 			callback = function()
 				self:userStationsMenu()
 			end,
@@ -391,8 +403,9 @@ function _stationItems(self, stations)
 		local selectedStation = station
 		items[#items + 1] = {
 			text = Stations.displayName(selectedStation, self), sound = "SELECT", weight = index,
+            cmCallback=selectedStation.provider and function() self:_showOpmlStationActions(selectedStation) end or nil,
 			callback = function()
-				_logInfo("selected Radio Browser station ", Stations.displayName(selectedStation, self))
+				_logInfo("selected station ", Stations.displayName(selectedStation, self))
 				self:_playStation(selectedStation)
 			end,
 		}
@@ -417,6 +430,10 @@ end
 function _renderUserStations(self)
 	if not self.userStationsMenuWidget then return end
 	local stations, err = self.userStations:reload()
+    local combined={}
+    for _,station in ipairs(stations or {}) do combined[#combined+1]=station end
+    for _,station in ipairs(self.presetStore:getFavorites()) do combined[#combined+1]=station end
+    stations=combined
 	local items = {}
 	for index, station in ipairs(stations or {}) do
 		local selected = station
@@ -553,16 +570,55 @@ local function urlEncode(value)
 end
 
 
-function _showRadioFeedsSearch(self, entry)
-	entry = entry or { title = self:string("STANDALONE_RADIO_SEARCH"), url = self.radioFeeds:searchUrl() }
+function _getOpmlNavigator(self, provider)
+    self.opmlNavigators=self.opmlNavigators or {}
+    local navigator=self.opmlNavigators[provider]
+    if not navigator then
+        local client=assert(self.opmlClients and self.opmlClients[provider] or (provider=="radiofeeds" and self.radioFeeds))
+        navigator=OpmlNavigator.new({client=client,ui={
+            window=function(title)
+                local window=Window("text_list",title)
+                local menu=SimpleMenu("menu")
+                menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
+                window:addWidget(menu);return window,menu
+            end,
+            listen=function(window,inactive,pop,active)
+                window:addListener(EVENT_WINDOW_INACTIVE,inactive)
+                window:addListener(EVENT_WINDOW_POP,pop)
+                window:addListener(EVENT_WINDOW_ACTIVE,active)
+            end,
+            show=function(window) self:tieAndShowWindow(window) end,
+            text=function(key)
+                local tokens={search="STANDALONE_RADIO_SEARCH",loading="STANDALONE_RADIO_LOADING",empty="STANDALONE_RADIO_NO_STATIONS",untitled="STANDALONE_RADIO_OPML_UNTITLED",
+                    failed=provider=="radiofeeds" and "STANDALONE_RADIO_RADIOFEEDS_FAILED" or "STANDALONE_RADIO_OPML_FAILED"}
+                return self:string(tokens[key])
+            end,
+            search=function(entry,submit,cancel) self:_showOpmlSearchInput(entry,submit,cancel) end,
+            play=function(station) self:_playStation(station) end,
+            actions=function(station) self:_showOpmlStationActions(station) end,
+            stations=function(stations) return self:_stationItems(stations) end,
+            error=function(err,quiet)
+                log:warn("StandaloneRadio: OPML ",provider,": ",tostring(err))
+                if not quiet then self:_showPopup(self:string("STANDALONE_RADIO_FAILED")) end
+            end,
+        }})
+        self.opmlNavigators[provider]=navigator
+    end
+    if self.activeOpmlNavigator and self.activeOpmlNavigator~=navigator then self.activeOpmlNavigator:close() end
+    self.activeOpmlNavigator=navigator
+    return navigator
+end
+
+function _showOpmlSearchInput(self, entry, submit, cancel)
 	local window = Window("text_list", entry.title)
+	if cancel then window:addListener(EVENT_WINDOW_POP,cancel) end
 	local input = Textinput("textinput", Textinput.textValue("", 0, 64), function(_, value)
 		local query = tostring(value or ""):match("^%s*(.-)%s*$")
 		if query == "" then return false end
 		-- Percent escapes in a replacement string are interpreted by gsub.
 		-- Return the encoded query from a function to preserve its bytes.
 		local url = string.gsub(entry.url, "{QUERY}", function() return urlEncode(query) end)
-		self:_showRadioFeedsSearchResults(url, entry.title)
+		submit(url)
 		return true
 	end)
 	local backspace = Keyboard.backspace()
@@ -574,110 +630,44 @@ function _showRadioFeedsSearch(self, entry)
 end
 
 
-function _showRadioFeedsSearchResults(self, url, title)
-	local window = Window("text_list", title)
-	local menu = SimpleMenu("menu")
-	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
-	window:addWidget(menu)
-	menu:setItems({ { text = self:string("STANDALONE_RADIO_LOADING"), style = "item", weight = 0 } })
-	self:tieAndShowWindow(window)
-	self.radioFeedsSearchIdentity = (self.radioFeedsSearchIdentity or 0) + 1
-	local identity = self.radioFeedsSearchIdentity
-	self.radioFeeds:fetchDirectory(url, function(directory, err)
-		if identity ~= self.radioFeedsSearchIdentity then return end
-		if err or not directory then
-			log:warn("StandaloneRadio: RadioFeeds search failed: ", tostring(err))
-			menu:setItems({ { text = self:string("STANDALONE_RADIO_RADIOFEEDS_FAILED"), style = "item", weight = 0 } })
-		else
-			local stations = {}
-			local function collect(entries)
-				for _, item in ipairs(entries or {}) do
-					if item.type == "audio" then
-						local station = self.radioFeeds:toStation(item)
-						if station then stations[#stations + 1] = station end
-					elseif item.children then collect(item.children) end
-				end
-			end
-			collect(directory.children)
-			menu:setItems(self:_stationItems(stations))
-		end
-		menu:reLayout()
-	end)
+function _showRadioFeedsSearch(self,entry)
+    return self:_getOpmlNavigator("radiofeeds"):search(entry)
+end
+function _showRadioFeedsSearchResults(self,url,title)
+    return self:_getOpmlNavigator("radiofeeds"):open(url,title,nil,true)
+end
+function _radioFeedsItems(self,entries)
+    return self:_getOpmlNavigator("radiofeeds"):items(entries)
+end
+function _showRadioFeedsEntries(self,title,entries)
+    return self:_getOpmlNavigator("radiofeeds"):open(nil,title,entries)
+end
+function radioFeedsMenu(self,url,title)
+    if not self:_ensureComponents() then return end
+    return self:_getOpmlNavigator("radiofeeds"):open(url,title)
 end
 
 
-function _radioFeedsItems(self, entries)
-	local items = {}
-	for index, entry in ipairs(entries or {}) do
-		local selected = entry
-		local item = { text = selected.title, sound = "SELECT", weight = index }
-		if selected.type == "link" and selected.url then
-			item.callback = function() self:radioFeedsMenu(selected.url, selected.title) end
-		elseif selected.type == "search" and selected.url then
-			item.callback = function() self:_showRadioFeedsSearch(selected) end
-		elseif selected.type == "audio" and selected.url then
-			item.callback = function()
-				local station, err = self.radioFeeds:toStation(selected)
-				if not station then
-					log:warn("StandaloneRadio: invalid RadioFeeds station: ", tostring(err))
-					self:_showPopup(self:string("STANDALONE_RADIO_FAILED"))
-					return
-				end
-				_logInfo("selected RadioFeeds station ", station.name, " bitrate=", tostring(station.bitrate))
-				self:_playStation(station)
-			end
-		elseif selected.type == "directory" then
-			item.callback = function() self:_showRadioFeedsEntries(selected.title, selected.children or {}) end
-		else
-			item.style = "item"
-		end
-		items[#items + 1] = item
-	end
-	if #items == 0 then items[1] = { text = self:string("STANDALONE_RADIO_NO_STATIONS"), style = "item", weight = 0 } end
-	return items
+function tuneInMenu(self)
+    if not self:_ensureComponents() then return end
+    return self:_getOpmlNavigator("tunein"):open(self.opmlClients.tunein:rootUrl(),self:string("STANDALONE_RADIO_TUNEIN"))
 end
 
-
-function _showRadioFeedsEntries(self, title, entries)
-	local window = Window("text_list", title)
-	local menu = SimpleMenu("menu")
-	window:addWidget(menu)
-	menu:setItems(self:_radioFeedsItems(entries))
-	self:tieAndShowWindow(window)
+function _showOpmlStationActions(self,station)
+    local window=Window("text_list",station.name)
+    local menu=SimpleMenu("menu");window:addWidget(menu)
+    local items={{text=self:string("STANDALONE_RADIO_SAVE_FAVORITE"),sound="SELECT",weight=0,
+        callback=function()
+            local saved=self.presetStore:saveFavorite(station)
+            self:_showPopup(self:string(saved and "STANDALONE_RADIO_FAVORITE_SAVED" or "STANDALONE_RADIO_FAILED"))
+        end}}
+    for i=1,6 do
+        local number=i
+        items[#items+1]={text=self:string("STANDALONE_RADIO_PRESET").." "..i,sound="SELECT",weight=i,
+            callback=function() self.presetStore:assign(number,station);window:hide() end}
+    end
+    menu:setItems(items);self:tieAndShowWindow(window)
 end
-
-
-function radioFeedsMenu(self, url, title)
-	if not self:_ensureComponents() then return end
-	local window = Window("text_list", title)
-	local menu = SimpleMenu("menu")
-	menu:setComparator(SimpleMenu.itemComparatorWeightAlpha)
-	window:addWidget(menu)
-	local isRoot = url == self.radioFeeds:rootUrl()
-	local function withSearch(items)
-		if isRoot then
-			table.insert(items, 1, { text = self:string("STANDALONE_RADIO_SEARCH"), sound = "SELECT", weight = -1,
-				callback = function() self:_showRadioFeedsSearch() end })
-		end
-		return items
-	end
-	menu:setItems(withSearch({ { text = self:string("STANDALONE_RADIO_LOADING"), style = "item", weight = 0 } }))
-	self:tieAndShowWindow(window)
-	self.radioFeeds:fetchDirectory(url, function(directory, err)
-		if err then
-			log:warn("StandaloneRadio: RadioFeeds directory failed url=", url, " error=", tostring(err))
-			menu:setItems(withSearch({ { text = self:string("STANDALONE_RADIO_RADIOFEEDS_FAILED"), style = "item", weight = 0 } }))
-		else
-			local entries = {}
-			for _, entry in ipairs(directory.children or {}) do
-				if not (isRoot and entry.type == "search") then entries[#entries + 1] = entry end
-			end
-			menu:setItems(withSearch(self:_radioFeedsItems(entries)))
-		end
-		menu:reLayout()
-	end)
-end
-
 
 function _showCountryMenu(self)
 	local window = Window("text_list", self:string("STANDALONE_RADIO_COUNTRY"))

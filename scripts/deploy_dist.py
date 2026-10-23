@@ -32,8 +32,6 @@ REQUIRED_ROOT = {
     "NativeNowPlaying.lua",
     "PresetStore.lua",
     "RadioBrowser.lua",
-    "RadioFeedsClient.lua",
-    "RadioFeedsOpml.lua",
     "Resolver.lua",
     "StandaloneBaseNowPlaying.lua",
     "StandaloneRadioApplet.lua",
@@ -47,6 +45,7 @@ REQUIRED_ROOT = {
     "strings.txt",
 }
 REQUIRED = REQUIRED_ROOT | {"images/radio.png"}
+OPML_MODULES = {"OpmlClient.lua", "OpmlParser.lua", "OpmlProviders.lua", "OpmlNavigator.lua"}
 TARGET = "/usr/share/jive/applets/StandaloneRadio"
 
 
@@ -98,8 +97,16 @@ def validate_package(value: Path) -> tuple[Path, list[str], str]:
             mode = entry.external_attr >> 16
             if mode and stat.S_ISLNK(mode):
                 raise ValueError(f"symbolic links are not allowed: {name}")
-        missing = sorted(REQUIRED.difference(names))
-        unexpected = sorted(set(names).difference(REQUIRED))
+        # Archived releases used the historical RadioFeeds module names.
+        legacy = {"RadioFeedsClient.lua", "RadioFeedsOpml.lua"}
+        if legacy.intersection(names):
+            expected = REQUIRED | legacy
+            if OPML_MODULES.intersection(names):
+                expected |= OPML_MODULES
+        else:
+            expected = REQUIRED | OPML_MODULES
+        missing = sorted(expected.difference(names))
+        unexpected = sorted(set(names).difference(expected))
         if missing:
             raise ValueError("package is missing: " + ", ".join(missing))
         if unexpected:

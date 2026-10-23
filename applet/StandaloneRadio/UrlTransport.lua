@@ -3,6 +3,10 @@ local tonumber, tostring, type = tonumber, tostring, type
 local string = require("string")
 
 local UrlTransport = {}
+local traceOk, HttpTrace = pcall(require, "applets.StandaloneBase.HttpTrace")
+function UrlTransport.beginTrace(source, url)
+    return traceOk and HttpTrace.begin(source, "GET", url) or nil
+end
 
 -- Optional Standalone Base service keeps SVG handling out of the audio applet.
 function UrlTransport.renderSvgUrl(url, mime)

@@ -1,4 +1,4 @@
-local ipairs, setmetatable, tonumber, tostring = ipairs, setmetatable, tonumber, tostring
+local ipairs, setmetatable, tonumber, tostring, type = ipairs, setmetatable, tonumber, tostring, type
 
 local Stations = require("applets.StandaloneRadio.Stations")
 
@@ -27,7 +27,22 @@ local function clonePreset(station, preset)
 		playlistUrl = station.playlistUrl,
 		countrycode = station.countrycode,
 		preset = preset,
+		provider = station.provider, providerId = station.providerId,
+		resolverUrl = station.resolverUrl, declaredCodec = station.declaredCodec,
+		declaredFormats = station.declaredFormats, description = station.description,
+		genre = station.genre, homepage = station.homepage,
 	}
+	if station.providerMetadata then
+		copy.providerMetadata={}
+		for _,key in ipairs({"guide_id","preset_id","now_playing_id","show_id","reliability","item"}) do
+			local value=station.providerMetadata[key]
+			if type(value)=="string" then copy.providerMetadata[key]=value:sub(1,128) end
+		end
+	end
+	if station.resolverUrl then
+		copy.url=station.resolverUrl;copy.playlistUrl=station.resolverUrl
+		copy.hls=nil;copy.requiresResolution=station.provider=="tunein"
+	end
 	Stations.normalize(copy)
 	return copy
 end
@@ -95,6 +110,29 @@ function PresetStore:assign(number, station)
 	self.applet:storeSettings()
 	self.log:info("StandaloneRadio: preset ", tostring(number), " saved")
 	return saved
+end
+
+-- Provider favorites share the existing applet settings store with presets.
+function PresetStore:saveFavorite(station)
+	if not station or not station.provider then return false end
+	local favorites=self.settings.favorites or {}
+	for index,item in ipairs(favorites) do
+		if item.id==station.id and item.provider==station.provider then
+			favorites[index]=clonePreset(station);self.settings.favorites=favorites
+			self.applet:storeSettings();return true
+		end
+	end
+	if #favorites>=100 then return false end
+	favorites[#favorites+1]=clonePreset(station);self.settings.favorites=favorites
+	self.applet:storeSettings();return true
+end
+function PresetStore:getFavorites()
+	local result={}
+	for index,station in ipairs(self.settings.favorites or {}) do
+		if index>100 then break end
+		if Stations.normalize(station) then result[#result+1]=station end
+	end
+	return result
 end
 
 

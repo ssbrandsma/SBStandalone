@@ -91,12 +91,15 @@ function TrackArtwork:lookup(station, streamTitle, stationGeneration)
 	self.log:info("StandaloneRadio: track artwork lookup artist=", artist, " title=", title)
 
 	local path = "/music/track/" .. encodePathSegment(title) .. "/" .. encodePathSegment(artist) .. "/cover"
+	local trace=UrlTransport.beginTrace and UrlTransport.beginTrace("track-artwork:"..tostring(station.id),"http://"..API_HOST..path)
 	self.resolver:resolve(API_HOST, function(ip)
 		if not self:_isCurrent(generation, key, station) then
+			if trace then trace:finish("cancelled") end
 			self.log:info("StandaloneRadio: ignoring stale artwork result")
 			return
 		end
 		if not ip then
+			if trace then trace:finish("DNS failed: "..API_HOST) end
 			self.log:warn("StandaloneRadio: track artwork lookup failed DNS")
 			return
 		end
@@ -132,8 +135,9 @@ function TrackArtwork:lookup(station, streamTitle, stationGeneration)
 			["Accept"] = "application/json",
 			["Connection"] = "close",
 		} })
+		request._standaloneTrace=trace
 		self.http = SocketHttp(jnt, ip, API_PORT, "StandaloneRadioTrackArtwork")
-		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.8" } end
+		self.http.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.12" } end
 		self.http:fetch(request)
 	end)
 end
