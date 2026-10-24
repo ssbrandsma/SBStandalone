@@ -225,8 +225,8 @@ Supported outlines include `text`/`title`, case-insensitive `URL`/`url`,
 `xmlUrl`, audio entries, inline children, remote link/directory entries and
 `image`/`icon`. `htmlUrl` is homepage metadata, never an inferred stream.
 Relative links and artwork use the final redirected document URL. Unknown
-entries retain the existing unsupported-item behavior. RSS feeds themselves
-are not supported. Example: [custom-directory.opml](../test/fixtures/opml/custom-directory.opml).
+entries retain the existing unsupported-item behavior. RSS 2.0 podcast feeds are supported through the same navigation and may also
+be entered directly as sources; see [RSS podcast support](PODCAST_RSS.md). Example: [custom-directory.opml](../test/fixtures/opml/custom-directory.opml).
 
 Existing asynchronous HTTP, Base HTTPS proxy, tracing, redirects, cancellation,
 stream resolution and artwork rendering are reused. Local logo wins over the

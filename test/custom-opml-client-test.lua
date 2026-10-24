@@ -79,3 +79,30 @@ cancel2=client:fetchDirectory(slow,function() error("cancelled callback") end)
 cancel();cancel2();assert(held.socket.closed and not client.directoryPending)
 os.time=oldTime
 print("Custom OPML real XML, relative/redirected links, station mapping, two-page TTL cache, coalescing, errors and cancellation passed")
+
+-- The same directory request path detects RSS by XML, independent of extension/MIME.
+local rssUrl="https://example.org/not-a-feed-extension?token=a%2Fb"
+local rssFile=assert(io.open("test/fixtures/podcasts/bbc-style.rss","rb"));local rss=rssFile:read("*a");rssFile:close()
+fixtures[rssUrl]={body=rss,mime="application/octet-stream"}
+local podcast=Client.new({provider=Providers.get("custom"),log={info=function() end,warn=function() end}})
+local directory
+podcast:fetchDirectory(rssUrl,function(value,err) assert(value,tostring(err));directory=value end)
+assert(directory.format=="rss" and #directory.children==3)
+local episode=assert(podcast:toStation(directory.children[1]))
+assert(episode.episode and episode.podcast=="News & Stories" and episode.codec=="mp3")
+assert(episode.duration_ms==3723000 and episode.enclosureLength==123456)
+assert(episode.url=="https://example.org/new.mp3?key=x%2Fy&b=2" and not episode.requiresResolution)
+local rssSlow="https://example.org/slow.rss";fixtures[rssSlow]={hold=true}
+local cancelRss=podcast:fetchDirectory(rssSlow,function() error("cancelled feed delivered") end)
+held.request.options.headersSink({["Content-Type"]="application/rss+xml"})
+held.request.sink('<rss><channel><item><title>Partial')
+cancelRss();assert(held.socket.closed)
+held.request.sink('</title></item></channel></rss>');held.request.sink(nil)
+fixtures[rssSlow]={body='<rss><channel><item>',mime="application/rss+xml"}
+podcast:fetchDirectory(rssSlow,function(value,err) assert(not value and err) end)
+print("Direct RSS, OPML-to-RSS shared fetch, episode mapping and partial-feed cancellation passed")
+
+local settings={presets={}};local store=require("applets.StandaloneRadio.PresetStore").new({settings=settings,applet={storeSettings=function() end},log={info=function() end,warn=function() end}})
+local saved=assert(store:assign(1,episode));assert(saved.episode and saved.podcast==episode.podcast and saved.duration_ms==episode.duration_ms)
+assert(not saved.requiresResolution and saved.url==episode.url)
+assert(store:saveFavorite(episode));assert(store:getFavorites()[1].episode)

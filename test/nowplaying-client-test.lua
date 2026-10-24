@@ -277,3 +277,23 @@ equal(snapshot.station.description,"Description")
 equal(snapshot.station.homepage,"https://example.org")
 equal(snapshot.station.genre,"Rock")
 print("StandaloneBase Now Playing client tests passed")
+
+local episode={id="episode",stationuuid="episode-1",source="custom",episode=true,name="Episode name",
+ episodeTitle="Episode title",podcast="Podcast title",url="https://example.org/episode.mp3?token=a%2Fb",
+ duration_ms=123000,position_ms=5000,enclosureType="audio/mpeg",codec="mp3"}
+local pc=api.new({request=function() end});pc.station=episode;pc.stationGeneration=1;pc._sync=function() end
+pc.desiredState="playing";pc.stationArtwork="http://example.org/episode.jpg"
+local snap=pc:_snapshot()
+assert(snap.live==false and snap.position_ms==5000 and snap.track.duration_ms==123000)
+assert(snap.track.title=="Episode title" and snap.track.artist=="Podcast title" and snap.track.album=="Podcast title")
+assert(snap.track.artwork_url==pc.stationArtwork and snap.track.content_type=="audio/mpeg")
+pc:updatePosition(10000,episode,1);assert(pc:_snapshot().position_ms==10000)
+pc:updatePosition(20000,episode,0);assert(pc:_snapshot().position_ms==10000)
+pc:updateState("PAUSED",episode,1);assert(pc:_snapshot().state=="paused")
+pc:updateState("FAILED",episode,1);assert(pc.releaseRequested and not pc.activeIntent)
+episode.episodeTitle=string.rep(string.char(195,169),256);episode.podcast=string.rep("BBC ",100)
+snap=pc:_snapshot();assert(#snap.track.title==254 and #snap.track.artist==255 and #snap.track.album==255)
+print("Podcast non-live Now Playing metadata, duration/position, artwork, pause/release and API text bounds passed")
+
+episode.observedAudio={};episode.declaredCodec=nil;episode.codec=nil;episode.provider="custom"
+snap=pc:_snapshot();assert(snap.track.audio==nil and snap.station.audio==nil,"empty tables must not encode as JSON arrays")

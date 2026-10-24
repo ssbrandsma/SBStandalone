@@ -28,6 +28,9 @@ local function clonePreset(station, preset)
 		countrycode = station.countrycode,
 		preset = preset,
 		provider = station.provider, providerId = station.providerId,
+        episode=station.episode,episodeTitle=station.episodeTitle,podcast=station.podcast,
+        duration_ms=station.duration_ms,enclosureType=station.enclosureType,enclosureLength=station.enclosureLength,
+        guid=station.guid,pubDate=station.pubDate,episodeNumber=station.episodeNumber,language=station.language,
 		resolverUrl = station.resolverUrl, declaredCodec = station.declaredCodec,
 		declaredFormats = station.declaredFormats, description = station.description,
 		genre = station.genre, homepage = station.homepage,
@@ -39,7 +42,7 @@ local function clonePreset(station, preset)
 			if type(value)=="string" then copy.providerMetadata[key]=value:sub(1,128) end
 		end
 	end
-	if station.resolverUrl then
+	if station.resolverUrl and not station.episode then
 		copy.url=station.resolverUrl;copy.playlistUrl=station.resolverUrl
 		copy.hls=nil;copy.requiresResolution=station.provider=="tunein"
 	end

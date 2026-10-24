@@ -118,6 +118,8 @@ function Navigator:open(url,title,inline,search)
                         end
                     end
                     collect(entries);context.menu:setItems(self.ui.stations(stations))
+                elseif directory.format=="rss" and #entries==0 then
+                    context.menu:setItems({{text=self.ui.text("podcastEmpty"),style="item",weight=0}})
                 else context.menu:setItems(decorate(self:items(entries))) end
                 -- Keep at most two remote menu payloads. Older Back targets
                 -- retain only navigation state and reload when activated.

@@ -219,3 +219,5 @@ cancellation and bounded window state. See [custom directory behavior and
 limits](USER_DEFINED_STATIONS.md#custom-opml-directories).
 
 HTTP redirect ownership and HLS validation are documented in [HTTP redirects and HLS transport](http-hls-redirects.md).
+
+RSS 2.0 links and directly configured feeds use the same navigator via the incremental reader described in [podcast support](PODCAST_RSS.md). OPML parsing limits remain separate.

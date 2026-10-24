@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:pod="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<channel><title>News &amp; Stories</title><description><![CDATA[Daily <b>news</b>]]></description>
+<language>en-GB</language><pod:author>BBC</pod:author><link>https://example.org/podcast</link>
+<image><url>/channel.jpg</url></image>
+<item><title>Older</title><pubDate>Fri, 02 Jan 2026 12:00:00 GMT</pubDate><guid>old</guid>
+<enclosure url="old.mp3?token=a%2Fb&amp;q=1" type="audio/mpeg" length="1200"/></item>
+<item><title><![CDATA[Latest & current]]></title><pod:summary><![CDATA[World <i>news</i>]]></pod:summary>
+<pubDate>Sat, 03 Jan 2026 14:00:00 +0200</pubDate><guid>new</guid><pod:duration>1:02:03</pod:duration><pod:episode>42</pod:episode>
+<pod:image href="art/new.jpg"/>
+<enclosure url="file:///etc/passwd" type="audio/mpeg"/>
+<enclosure url="movie.mp4" type="video/mp4"/>
+<enclosure url="alternative.aac" type="audio/aac"/>
+<enclosure url="new.mp3?key=x%2Fy&amp;b=2" type="audio/mpeg" length="123456"/>
+</item>
+<item><title>Undated</title><enclosure url="episode.m4a" type="audio/mp4"/></item>
+<item><title>Web page only</title><link>https://example.org/article</link></item>
+</channel></rss>

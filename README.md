@@ -83,6 +83,9 @@ With Extended Storage enabled, install Standalone Base **0.5.7 or newer**
 before Standalone Radio 0.9.9. Base fixes the stock installer's destination
 selection and ZIP extraction so the applet appears in the Home menu.
 
+Radio **0.9.14** adds generic RSS podcasts with bounded streaming parsing, finite playback,
+pause/resume and episode artwork and Now Playing metadata. See [podcast support](docs/PODCAST_RSS.md).
+
 Radio **0.9.13** adds custom OPML directories to My Radio Stations, follows
 Base's internal/Extended Storage configuration, and fixes HTTP-to-HTTPS playlist
 redirects without bypassing sbproxy. Redirect loops, timeouts and cancellation
@@ -250,3 +253,5 @@ including relative entries and bounded nested playlists. Supported HLS AAC/MP3
 audio uses Standalone Base's native loopback relay, including MPEG-TS audio
 extraction. Both projects must be updated together. Encrypted/fMP4 and other
 unsupported HLS formats fail cleanly. See [playlist handling](docs/PLAYLIST_HANDLING.md).
+
+Generic RSS 2.0 podcasts can be opened from custom OPML links or directly configured feeds. See [podcast support, limits and device checks](docs/PODCAST_RSS.md).

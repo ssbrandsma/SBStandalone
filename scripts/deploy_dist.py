@@ -105,6 +105,8 @@ def validate_package(value: Path) -> tuple[Path, list[str], str]:
                 expected |= OPML_MODULES
         else:
             expected = REQUIRED | OPML_MODULES
+        if "PodcastRssParser.lua" in names or ("OpmlClient.lua" in names and b"StandaloneRadio.PodcastRssParser" in archive.read("OpmlClient.lua")):
+            expected.add("PodcastRssParser.lua")
         missing = sorted(expected.difference(names))
         unexpected = sorted(set(names).difference(expected))
         if missing:

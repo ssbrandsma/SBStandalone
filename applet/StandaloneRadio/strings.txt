@@ -169,3 +169,7 @@ STANDALONE_RADIO_PRESET
 STANDALONE_RADIO_OPML_UNTITLED
 	EN	Untitled
 	NL	Zonder titel
+
+STANDALONE_RADIO_PODCAST_EMPTY
+	EN	No playable episodes
+	NL	Geen afspeelbare afleveringen

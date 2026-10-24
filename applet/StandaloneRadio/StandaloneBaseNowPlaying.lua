@@ -1,3 +1,4 @@
+local next = next
 local pcall, setmetatable, tonumber, tostring, type = pcall, setmetatable, tonumber, tostring, type
 local string = require("string")
 
@@ -23,7 +24,7 @@ local RETRY_MS = { 2000, 5000, 10000, 30000 }
 local STATE_MAP = {
 	RESOLVING = "buffering", CONNECTING = "buffering",
 	RECONNECTING = "buffering", CONNECTION_LOST = "buffering",
-	PLAYING = "playing", FAILED = "error", STOPPED = "stopped",
+	PLAYING = "playing", PAUSED="paused", FAILED = "error", STOPPED = "stopped",
 }
 
 local function trim(value)
@@ -33,6 +34,19 @@ end
 local function metadataText(value, maximum)
 	if type(value) ~= "string" or value == "" or #value >= maximum then return nil end
 	return value
+end
+
+-- Match Base's existing 256-byte text fields without cutting UTF-8 codepoints.
+local function bounded(value)
+    value=tostring(value or "")
+    local length=255
+    if #value<=length then return value end
+    while length>0 do
+        local byte=string.byte(value,length+1)
+        if not byte or byte<128 or byte>=192 then break end
+        length=length-1
+    end
+    return value:sub(1,length)
 end
 
 local function safeStationId(station)
@@ -53,7 +67,7 @@ local function safeStationId(station)
 end
 
 local function stationName(station)
-	return trim(station and (station.name or station.id or station.nameToken))
+	return bounded(trim(station and (station.name or station.id or station.nameToken)))
 end
 
 local function falseCapabilities()
@@ -109,13 +123,20 @@ function Client:_snapshot()
 	if not station then return nil end
 	local title, artist = StreamMetadata.parse(self.metadata)
 	if self.timedMetadata then title=self.timedMetadata.title; artist=self.timedMetadata.artist end
+	if station.episode then title=station.episodeTitle or station.name;artist=station.podcast or "" end
 	local artwork = self.trackArtwork or self.stationArtwork
 	local declaredCodec=station.codec
 	if station.provider then declaredCodec=station.declaredCodec end
+    local declaredAudio
+    if metadataText(declaredCodec,32) or tonumber(station.bitrate) then
+        declaredAudio={codec=metadataText(declaredCodec,32),bitrate_kbps=tonumber(station.bitrate)}
+    end
+    local observed=station.observedAudio
+    if observed and not next(observed) then observed=nil end
 	return {
 		state = self.desiredState or "buffering",
-		live = true,
-		position_ms = 0,
+		live = not station.episode,
+		position_ms = station.episode and (station.position_ms or 0) or 0,
 		-- Directory values are declared station properties, not measured stream
 		-- quality. Keep them separate from observed track.audio values.
 		station = {
@@ -127,19 +148,18 @@ function Client:_snapshot()
 			genre = metadataText(station.tags or station.genre, 256),
 			logo = metadataText(self.stationArtwork, 384),
 			stream_url = metadataText(station.url, 384),
-			audio = {
-				codec = metadataText(declaredCodec, 32),
-				bitrate_kbps = tonumber(station.bitrate),
-			},
+			audio = declaredAudio,
 		},
 		track = {
 			id = safeStationId(station),
 			station = stationName(station),
-			title = title or station.catalogPlaying or "",
-			artist = artist or "",
-			album = self.timedMetadata and self.timedMetadata.album or "",
+			title = bounded(title or station.catalogPlaying or ""),
+			artist = bounded(artist or ""),
+			album = bounded(station.episode and (station.podcast or "") or self.timedMetadata and self.timedMetadata.album or ""),
+            duration_ms=station.episode and station.duration_ms or nil,
+            content_type=station.episode and station.enclosureType or nil,
 			artwork_url = artwork,
-			audio = station.observedAudio or {},
+			audio = observed, -- omit empty tables; the native API requires an object
 		},
 	}
 end
@@ -183,7 +203,7 @@ function Client:_nativeRequest(method, path, payload, callback)
 		end
 	end
 	local socket = SocketHttp(jnt, self.host, self.port, "StandaloneRadioNowPlayingAPI")
-	socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.13" } end
+	socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.14" } end
 	self.http = socket
 	local ok, err = pcall(function() socket:fetch(request) end)
 	if not ok then finish(nil, nil, tostring(err)) end
@@ -330,7 +350,7 @@ function Client:_update()
 			end
 			self:_sync()
 		elseif status == 409 then self:_sessionLost()
-		else self:_scheduleRetry("update failed HTTP " .. tostring(status or err or "unavailable")) end
+		else self:_scheduleRetry("update failed HTTP " .. tostring(status or err or "unavailable") .. " reason=" .. tostring(response and response.error or err or "unknown")) end
 	end)
 end
 
@@ -426,12 +446,18 @@ function Client:updateState(state, station, stationGeneration)
 	self:_debug("state=", tostring(state), " mapped=", tostring(mapped),
 		" station=", station and safeStationId(station) or "none",
 		" stationGeneration=", tostring(self.stationGeneration))
-	if mapped == "stopped" then
+	if mapped == "stopped" or mapped=="error" and self.station and self.station.episode then
 		self.activeIntent = false
 		self.releaseRequested = true
 	end
 	if self.desiredState ~= mapped then self.desiredState = mapped; self:_bump() end
 	self:_sync()
+end
+
+function Client:updatePosition(position, station, stationGeneration)
+    if stationGeneration~=self.stationGeneration or not self.station or not self.station.episode or
+        not station or safeStationId(station)~=safeStationId(self.station) or type(position)~="number" or position<0 then return end
+    self.station.position_ms=position;self:_bump();self:_sync()
 end
 
 function Client:updateMetadata(streamTitle, station, stationGeneration)

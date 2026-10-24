@@ -1,5 +1,6 @@
 local pairs, pcall, setmetatable, tonumber, tostring, type = pairs, pcall, setmetatable, tonumber, tostring, type
 
+local math = require("math")
 local string = require("string")
 
 local Player = require("jive.slim.Player")
@@ -30,6 +31,7 @@ local POWER_KEEPALIVE_INTERVAL = 5 * 60 * 1000
 local DECODE_UNDERRUN = (1 << 1)
 
 local CODEC_DECODERS = {
+    ["aac_mp4"] = { mode="a", accept="audio/mp4,audio/x-m4a,*/*", sampleSize="5" },
 	-- For AAC mode, SqueezePlay overloads the first PCM parameter with the
 	-- transport type. Radio Browser's raw AAC streams use ADTS (type 2).
 	["aac"] = { mode = "a", accept = "audio/aac,audio/aacp,*/*", sampleSize = "2" },
@@ -198,7 +200,7 @@ end
 
 
 function StreamPlayer:_audioRecoveryTick()
-	if not self.playbackActive or self.intentionalStop then
+	if not self.playbackActive or self.intentionalStop or self.paused then
 		self:_resetAudioRecovery()
 		return
 	end
@@ -209,6 +211,18 @@ function StreamPlayer:_audioRecoveryTick()
 	if not okStatus or type(status) ~= "table" then
 		return
 	end
+
+    if self.desiredStation and self.desiredStation.episode then
+        if status.decodeState and status.decodeState & ((1 << 2) | (1 << 3)) ~= 0 then self:stop("FAILED");return end
+        local position=tonumber(status.elapsed)
+        if position and position>=0 then
+            position=math.floor(position) -- native decode.status().elapsed is already milliseconds
+            self.desiredStation.position_ms=position
+            if self.callbacks.onPosition and (not self.lastPosition or math.abs(position-self.lastPosition)>=5000) then
+                self.lastPosition=position;self.callbacks.onPosition(position,self.desiredStation,self.stationGeneration)
+            end
+        end
+    end
 
 	local playback = self.hookedPlayback
 	local audioUnderrun = status.audioState & DECODE_UNDERRUN ~= 0
@@ -234,7 +248,7 @@ end
 
 function StreamPlayer:_watchdogTick()
 	local station = self.desiredStation
-	if not station or self.intentionalStop or self.pendingStation or self.reconnectTimer then
+	if not station or self.intentionalStop or self.paused or self.episodeEOF or self.pendingStation or self.reconnectTimer then
 		self:_resetWatchdog()
 		return
 	end
@@ -331,7 +345,8 @@ function StreamPlayer:_handleMetadata(data)
 end
 
 
-function StreamPlayer:_scheduleReconnect(station, generation)
+function StreamPlayer:_scheduleReconnect(station, generation, redirect)
+    if station and station.episode and not redirect then self:stop("FAILED");return end
 	if not self:_isCurrent(generation, station) or self.reconnectTimer then
 		return
 	end
@@ -360,6 +375,11 @@ function StreamPlayer:_handleDisconnect(reason, flush)
 	if self.hlsMetadata then self.hlsMetadata:stop() end
 
 	local station = self.desiredStation
+    if station.episode then
+        if reason==0 then self.episodeEOF=true;return end -- FIN: let decoded audio drain
+        self.log:warn("StandaloneRadio: episode transfer failed; not restarting from zero")
+        self:stop("FAILED");return
+    end
 	if self.httpsProxyStatus and UrlTransport.isHttps(station.url) then
 		self.httpsProxyStatus:transportFailed(station.url)
 	end
@@ -595,6 +615,7 @@ function StreamPlayer:_installHooks(playback)
 				self:_startHlsMetadata(session)
 			end
 			self.log:info("StandaloneRadio: stream response=", tostring(statusLine))
+            if self.desiredStation and self.desiredStation.episode and status and status>=400 then self:stop("FAILED");return end
 			local location = string.match(headerText, "[Ll]ocation:%s*([^\r\n]+)")
 			if status and status >= 300 and status < 400 and location then
 				self.log:info("StandaloneRadio: stream redirect location=", UrlTransport.redact(location))
@@ -610,7 +631,7 @@ function StreamPlayer:_installHooks(playback)
 			self.redirectCount = self.redirectCount + 1
 			self.desiredStation = redirected
 			self.retryIndex = 1
-			self:_scheduleReconnect(redirected, self.generation)
+			self:_scheduleReconnect(redirected, self.generation, true)
 			return
 			elseif status and status >= 200 and status < 300 then
 				self.redirectCount = 0
@@ -650,6 +671,10 @@ function StreamPlayer:_installHooks(playback)
 			end
 			return originalSend(proto, packet, force)
 		end
+        if self.ownsPlayback and self.desiredStation and self.desiredStation.episode and opcode=="STAT" then
+            if packet.event=="STMu" then self:stop();return true end -- audio drained, not merely network EOF
+            if packet.event=="STMn" then self:stop("FAILED");return true end
+        end
 		if type(packet) == "table" and packet.opcode == "META" then
 			self:_handleMetadata(packet.data)
 		end
@@ -677,6 +702,8 @@ end
 
 
 function StreamPlayer:_begin(station, reconnect)
+    self.paused=false;self.episodeEOF=false;self.lastPosition=nil
+    if station.episode then station.position_ms=0 end
 	if self.hlsMetadata then self.hlsMetadata:stop() end
 	self:_cancelReconnect()
 	self.ownsPlayback = true
@@ -801,7 +828,8 @@ function StreamPlayer:start(station)
 end
 
 
-function StreamPlayer:stop()
+function StreamPlayer:stop(state)
+    self.paused=false;self.episodeEOF=false;self.lastPosition=nil
 	if self.hlsMetadata then self.hlsMetadata:stop() end
 	if self.playlistResolver and self.playlistResolver.cancelPlaylist then self.playlistResolver:cancelPlaylist() end
 	self.generation = self.generation + 1
@@ -814,7 +842,7 @@ function StreamPlayer:stop()
 	self:_resetAudioRecovery()
 	self:_stopPlayback()
 	if self.lastStation then
-		self:_notifyState(self.lastStation, "STOPPED", false)
+		self:_notifyState(self.lastStation, state or "STOPPED", false)
 	end
 	self.log:info("StandaloneRadio: stopped")
 end
@@ -835,7 +863,17 @@ function StreamPlayer:stopConnecting()
 end
 
 
+function StreamPlayer:pause()
+    if not self.desiredStation or not self.desiredStation.episode then return self:stop() end
+    if not self.playbackActive or self.paused then return end
+    self.paused=true;decode:pauseAudio(0)
+    self:_notifyState(self.desiredStation,"PAUSED",false)
+end
+
 function StreamPlayer:play()
+    if self.paused and self.desiredStation and self.desiredStation.episode then
+        self.paused=false;decode:resumeAudio();self:_notifyState(self.desiredStation,"PLAYING",false);return true
+    end
 	if self.desiredStation then
 		return self:start(self.desiredStation)
 	end
@@ -852,5 +890,5 @@ end
 
 
 function StreamPlayer:isPlaying()
-	return self.playbackActive
+	return self.playbackActive and not self.paused
 end

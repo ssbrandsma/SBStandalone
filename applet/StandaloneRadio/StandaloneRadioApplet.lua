@@ -97,7 +97,7 @@ function _ensureComponents(self)
 		isPlaybackOwner = function()
 			return self.streamPlayer and self.streamPlayer.ownsPlayback == true
 		end,
-		onPublished = function()
+		onPublished = function(stationGeneration)
 			-- A source can start after the local LMS bootstrap completed while
 			-- stopped. Ensure the current Player is staged so it subscribes to
 			-- playerstatus before the stock Now Playing menu checks playlist size.
@@ -105,6 +105,7 @@ function _ensureComponents(self)
 			if player and player.onStage then
 				player:onStage()
 			end
+            self.nativeNowPlaying:request(stationGeneration)
 		end,
 	})
 	self.nativeNowPlaying = NativeNowPlaying.new({
@@ -130,13 +131,16 @@ function _ensureComponents(self)
 			onTimedMetadata = function(event, station, stationGeneration)
 				self.baseNowPlaying:updateTimedMetadata(event, station, stationGeneration)
 			end,
+            onPosition = function(position, station, stationGeneration)
+                self.baseNowPlaying:updatePosition(position,station,stationGeneration)
+            end,
 			onState = function(station, state, show, stationGeneration)
 				self.baseNowPlaying:updateState(state, station, stationGeneration)
 				self:_refreshMenu()
 			end,
 			onMetadata = function(title, station, stationGeneration)
 				self.baseNowPlaying:updateMetadata(title, station, stationGeneration)
-				if not station or station.source ~= "radiofeeds" then
+				if station and not station.episode and station.source ~= "radiofeeds" then
 					self.trackArtwork:lookup(station, title, stationGeneration)
 				end
 			end,
@@ -144,7 +148,6 @@ function _ensureComponents(self)
 				self.lastStation = station
 				self.trackArtwork:reset(station)
 				self.baseNowPlaying:activate(station, stationGeneration)
-				self.nativeNowPlaying:request(stationGeneration)
 				settings.lastStationId = station.id
 				if station.preset then
 					settings.lastPreset = station.preset
@@ -618,7 +621,7 @@ function _getOpmlNavigator(self, provider)
             end,
             show=function(window) self:tieAndShowWindow(window) end,
             text=function(key)
-                local tokens={search="STANDALONE_RADIO_SEARCH",loading="STANDALONE_RADIO_LOADING",empty="STANDALONE_RADIO_NO_STATIONS",untitled="STANDALONE_RADIO_OPML_UNTITLED",
+                local tokens={podcastEmpty="STANDALONE_RADIO_PODCAST_EMPTY",search="STANDALONE_RADIO_SEARCH",loading="STANDALONE_RADIO_LOADING",empty="STANDALONE_RADIO_NO_STATIONS",untitled="STANDALONE_RADIO_OPML_UNTITLED",
                     failed=provider=="radiofeeds" and "STANDALONE_RADIO_RADIOFEEDS_FAILED" or "STANDALONE_RADIO_OPML_FAILED"}
                 return self:string(tokens[key])
             end,
@@ -846,7 +849,7 @@ function enableStandaloneMode(self)
 		self.streamPlayer:stop()
 		return EVENT_CONSUME
 	end
-	table.insert(self.listenerHandles, Framework:addActionListener("pause", self, stopAction, -100))
+	table.insert(self.listenerHandles, Framework:addActionListener("pause", self, function() self.streamPlayer:pause();return EVENT_CONSUME end, -100))
 	table.insert(self.listenerHandles, Framework:addActionListener("stop", self, stopAction, -100))
 	table.insert(self.listenerHandles, Framework:addActionListener("play", self, function()
 		self.streamPlayer:play()

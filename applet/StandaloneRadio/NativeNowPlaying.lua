@@ -1,10 +1,10 @@
-local pcall, setmetatable, tostring = pcall, setmetatable, tostring
+local pcall, setmetatable, tostring, tonumber = pcall, setmetatable, tostring, tonumber
 
 module(...)
 
 local Navigation = {}
 Navigation.__index = Navigation
-local RETRY_DELAYS = { 50, 250, 500 }
+local RETRY_DELAYS = { 50, 250, 500, 1000, 2000 }
 
 function new(options)
 	return setmetatable({
@@ -56,6 +56,13 @@ function Navigation:_open(generation, attempt)
 		self:_schedule(generation, attempt + 1)
 		return
 	end
+
+    -- Publishing precedes the async playerstatus update. Do not open the stock
+    -- empty-playlist view before the native Player sees the newly owned track.
+    if player.getPlaylistSize then
+        local ok,size=pcall(function() return player:getPlaylistSize() end)
+        if not ok or (tonumber(size) or 0)<1 then self:_schedule(generation,attempt+1);return end
+    end
 
 	-- Avoid even a moveToTop call when the stock window is already current.
 	-- If it is elsewhere in the stack, the stock service safely reuses it.

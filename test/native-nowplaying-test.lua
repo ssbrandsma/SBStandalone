@@ -74,3 +74,13 @@ pending.callback(); assert(calls == 3)
 
 print("Native Now Playing navigation tests passed")
 
+
+local originalService=manager.callService
+local tracks=0
+manager.callService=function(self,name)
+ if name=="getCurrentPlayer" then return {getPlaylistSize=function() return tracks end} end
+ return originalService(self,name)
+end
+generation=8;nav:request(8);timers[#timers].callback();assert(calls==3)
+tracks=1;timers[#timers].callback();assert(calls==4)
+print("Native navigation waits for published playlist metadata instead of opening an empty playlist")

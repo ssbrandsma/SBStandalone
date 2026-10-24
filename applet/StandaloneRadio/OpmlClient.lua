@@ -1,4 +1,4 @@
-local os = os
+local os, math = os, math
 local ipairs, pairs, pcall, setmetatable, tonumber, tostring, type = ipairs, pairs, pcall, setmetatable, tonumber, tostring, type
 local string = require("string")
 local table = require("table")
@@ -6,6 +6,7 @@ local URL = require("socket.url")
 
 local RequestHttp = require("jive.net.RequestHttp")
 local Resolver = require("applets.StandaloneRadio.Resolver")
+local PodcastRssParser = require("applets.StandaloneRadio.PodcastRssParser")
 local OpmlParser = require("applets.StandaloneRadio.OpmlParser")
 local SocketHttp = require("jive.net.SocketHttp")
 local Stations = require("applets.StandaloneRadio.Stations")
@@ -18,7 +19,7 @@ module(...)
 local OpmlClient = {}
 OpmlClient.__index = OpmlClient
 
-local USER_AGENT = "Standalone/0.9.13"
+local USER_AGENT = "Standalone/0.9.14"
 local MAX_OPML_BYTES = 256 * 1024
 local MAX_PLAYLIST_BYTES = 64 * 1024
 local MAX_REDIRECTS = 5
@@ -98,6 +99,7 @@ function new(options)
 		log = options.log,
 		provider = options.provider,
 		userAgent = options.userAgent or USER_AGENT,
+        rssMaxBytes=options.rssMaxBytes,rssMaxEpisodes=options.rssMaxEpisodes,
 		resolver = Resolver.new({ log = options.log }),
 		httpsProxyStatus = options.httpsProxyStatus,
 	}, OpmlClient)
@@ -111,7 +113,7 @@ function OpmlClient:searchUrl()
 	return self.provider and self.provider.search
 end
 
-function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, parent)
+function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, parent, consumerFactory)
     visited=visited or {}
     if visited[url] then callback(nil,"OPML redirect loop");return function() end end
     visited[url]=true
@@ -120,11 +122,12 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, 
 	local streaming = true
 	local generation = self.playlistGeneration
     local finished,cancelled=false,false
-    local timer,socketRef,childCancel
+    local timer,socketRef,childCancel,consumer,rssTimer
     local originalCallback=callback
     local function cancel()
         if cancelled or finished then return end
         cancelled=true
+        if consumer then consumer:close();consumer=nil end
         if timer then timer:stop() end
         if childCancel then childCancel() end
         if trace then trace:finish("cancelled") end
@@ -133,18 +136,19 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, 
     callback=function(body,err,mime,effective)
         if finished or cancelled then return end
         finished=true
+        if consumer then consumer:close();consumer=nil end
         if timer then timer:stop() end
         if trace then trace:finish(err, type(body)=="string" and #body or nil) end
         return originalCallback(body,err,mime,effective,trace and trace.id)
     end
-    if timerAvailable then
-        timer=Timer(15000,function()
-            if finished or cancelled then return end
-            callback(nil,"OPML request timed out")
-            if childCancel then childCancel() end
-            if socketRef and socketRef.close then socketRef:close("timeout") end
-        end,true);timer:start()
+    local function timedOut()
+        if finished or cancelled then return end
+        callback(nil,"Directory request timed out")
+        if childCancel then childCancel() end
+        if socketRef and socketRef.close then socketRef:close("timeout") end
     end
+    if timerAvailable then timer=Timer(15000,timedOut,true);timer:start() end
+
 	local parsed, parseErr = UrlTransport.forRequest(url, self.log)
 	if not parsed then if trace then trace:finish(parseErr) end; callback(nil, parseErr); return false end
 	self.log:info("StandaloneRadio: OPML GET ", UrlTransport.redact(url))
@@ -157,20 +161,35 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, 
 		local socket
 		local completed = false
 		local chunks, bytes = {}, 0
-		local function tooLarge()
+		local function tooLarge(message)
 			if completed then return end
 			completed = true
 			chunks = {}
 			if self.playlistHttp == socket then self.playlistHttp = nil end
 			if self.http == socket then self.http = nil end
 			if socket and socket.close then pcall(function() socket:close() end) end
-			callback(nil, "OPML response is too large")
+			callback(nil, message or "OPML response is too large")
 		end
 		request = RequestHttp(function(body, err)
 			if completed or finished or cancelled or (playlist and generation ~= self.playlistGeneration) then return end
 			if streaming and body and not err then
 				if #body > maxBytes - bytes then tooLarge(); return end
 				bytes = bytes + #body
+                if consumerFactory then
+                    if not consumer then
+                        local ok,value=pcall(consumerFactory)
+                        if not ok then self.log:warn("StandaloneRadio: directory parser unavailable: ",tostring(value));tooLarge("Directory parser is unavailable");return end
+                        consumer=value
+                    end
+                    local ok,parseErr=consumer:write(body)
+                    if not ok then tooLarge(parseErr);return end
+                    if consumer.kind=="rss" and timerAvailable and not rssTimer then
+                        -- Large podcasts have a longer total deadline, not an idle
+                        -- timeout reset on every chunk. OPML keeps its 15s limit.
+                        rssTimer=true;timer:stop();timer=Timer(180000,timedOut,true);timer:start()
+                    end
+                    return
+                end
 				chunks[#chunks+1] = body
 				if #chunks >= 128 then chunks = {table.concat(chunks)} end
 				return
@@ -180,7 +199,7 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, 
 			if streaming then
 				if self.playlistHttp == socket then self.playlistHttp = nil end
 				if self.http == socket then self.http = nil end
-				if not err then body = table.concat(chunks) end
+				if not err then body = consumerFactory and "" or table.concat(chunks) end
 				chunks = {}
 			end
 			if err then
@@ -190,7 +209,7 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, 
 			if body == nil then return end
 			local status, statusLine = request:t_getResponseStatus()
 			local contentType = header(responseHeaders, "content-type") or ""
-			self.log:info("StandaloneRadio: OPML response status=", tostring(statusLine), " type=", contentType, " bytes=", tostring(#body))
+			self.log:info("StandaloneRadio: OPML response status=", tostring(statusLine), " type=", contentType, " bytes=", tostring(bytes))
 			if status and status >= 300 and status < 400 then
                 if trace then trace:finish(nil,bytes) end
                 -- Stop reading this hop without closing a socket inside its read task.
@@ -211,7 +230,7 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, 
                 self.log:info("HTTPTRACE event=redirect id=",trace and trace.id or "-",
                     " from_scheme=",url:match("^(%w+):")," to_scheme=",nextUrl:match("^(%w+):"),
                     " transport=",target.proxied and "sbproxy" or "http", " status=",tostring(status))
-                childCancel = self:_fetch(nextUrl, accept, maxBytes, redirects + 1, callback,visited,trace and trace.id)
+                childCancel = self:_fetch(nextUrl, accept, maxBytes, redirects + 1, callback,visited,trace and trace.id,consumerFactory)
 				return
 			end
 			if not status or status < 200 or status >= 300 then callback(nil, "OPML HTTP " .. tostring(status or statusLine)); return end
@@ -221,6 +240,15 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, 
 				local candidate = URL.build(request:getURI())
 				if parseUrl(candidate) then effectiveUrl = candidate end
 			end
+            if consumerFactory then
+                if not consumer then
+                    local ok,value=pcall(consumerFactory)
+                    if not ok then callback(nil,"Directory parser is unavailable");return end
+                    consumer=value
+                end
+                local result,parseErr=consumer:finish(effectiveUrl);consumer=nil
+                callback(result,parseErr,contentType,effectiveUrl);return
+            end
 			callback(body, nil, contentType, effectiveUrl)
 		end, "GET", parsed.path, {
 			stream = streaming,
@@ -250,6 +278,28 @@ function OpmlClient:_fetch(url, accept, maxBytes, redirects, callback, visited, 
 		if UrlTransport.explicitRedirects then UrlTransport.explicitRedirects(request) end
 		request._standaloneTrace=trace
 		socket = SocketHttp(jnt, ip, parsed.port, "StandaloneRadioOpml")
+        if consumerFactory and socket.t_addRead then
+            local addRead=socket.t_addRead
+            local burstLogged=false
+            socket.t_addRead=function(instance,pump,timeout)
+                return addRead(instance,function(...)
+                    local started=os.clock()
+                    local blocks=0
+                    -- Legacy SocketHttp pumps only one small block per UI poll.
+                    -- Drain a bounded RSS burst, yielding after 8ms or 16 blocks.
+                    -- Headers, OPML and other HTTP requests keep stock behavior.
+                    for _=1,16 do
+                        pump(...);blocks=blocks+1
+                        if not consumer or consumer.kind~="rss" or completed or finished or cancelled or
+                            os.clock()-started>=0.008 then break end
+                    end
+                    if not burstLogged and consumer and consumer.kind=="rss" then
+                        burstLogged=true
+                        self.log:info("HTTPTRACE event=rss_read_budget blocks=",tostring(blocks)," cpu_ms=",tostring(math.floor((os.clock()-started)*1000)))
+                    end
+                end,timeout)
+            end
+        end
 		socket.t_getSendHeaders = function() return { ["User-Agent"] = self.userAgent } end
 		self.http = socket
 		if playlist then self.playlistHttp = socket end
@@ -312,9 +362,10 @@ end
 
 function OpmlClient:_fetchDirectory(url, callback)
 	if self.provider and self.provider.prepareUrl then url=self.provider.prepareUrl(url) end
-	return self:_fetch(url, "application/xml,text/xml,*/*", MAX_OPML_BYTES, 0, function(body, err, contentType, effectiveUrl)
+	return self:_fetch(url, "application/xml,text/xml,*/*", self.rssMaxBytes or PodcastRssParser.MAX_BYTES, 0, function(body, err, contentType, effectiveUrl)
 		if err then callback(nil, err); return end
-		local result, parseErr = parseDirectoryResponse(body, contentType)
+		local result, parseErr
+        if type(body)=="table" then result=body else result,parseErr=parseDirectoryResponse(body,contentType) end
 		if result then
 			local function normalize(entries)
 				for _,entry in ipairs(entries or {}) do
@@ -331,7 +382,7 @@ function OpmlClient:_fetchDirectory(url, callback)
 		end
 		if result then result.url=effectiveUrl or url end
         callback(result, parseErr)
-	end)
+	end,nil,nil,function() return PodcastRssParser.new({maxBytes=self.rssMaxBytes,maxEpisodes=self.rssMaxEpisodes}) end)
 end
 
 function parseDirectoryResponse(body, contentType)
@@ -407,7 +458,14 @@ function OpmlClient:toStation(item)
         catalogPlaying=item.playing or item.current_track,genre=item.genre or item.genre_id,
         homepage=item.homepage,providerMetadata=item.metadata,
     }
-    if provider.decorateStation then provider.decorateStation(station,item) end
+    if item.episode then
+        station.requiresResolution=false;station.episode=true;station.episodeTitle=item.title;station.podcast=item.podcast
+        station.duration_ms=item.duration_ms;station.enclosureType=item.enclosureType
+        station.enclosureLength=item.enclosureLength;station.guid=item.guid
+        station.pubDate=item.pubDate;station.episodeNumber=item.episodeNumber
+        station.language=item.language;station.codec=item.codec;station.declaredCodec=item.codec
+    end
+    if provider.decorateStation and not item.episode then provider.decorateStation(station,item) end
     return Stations.normalize(station)
 end
 

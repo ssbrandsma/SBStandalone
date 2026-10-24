@@ -127,7 +127,7 @@ now.metadata="Actual Artist - Actual Track"
 snapshot=now:_snapshot()
 assert(snapshot.track.title=="Actual Track" and snapshot.track.artist=="Actual Artist")
 now.station=unknown;now.metadata=nil;snapshot=now:_snapshot()
-assert(snapshot.station.audio.codec==nil and snapshot.station.audio.bitrate_kbps==nil)
+assert(snapshot.station.audio==nil)
 local example=assert(Parser.parse(read("tunein-station.opml")))
 assert(example.children[1].title=="1 Vallei 104.9" and example.children[1].reliability=="100")
 print("TuneIn browse/search, station metadata, format resolution/fallback, bounds, cancellation, favorites and hardware preset replay passed")

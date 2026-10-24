@@ -52,6 +52,7 @@ $requiredRootFiles = @(
 	"RadioBrowser.lua",
 	"OpmlClient.lua",
 	"OpmlParser.lua",
+	"PodcastRssParser.lua",
 	"OpmlProviders.lua",
 	"OpmlNavigator.lua",
 	"Resolver.lua",
@@ -156,7 +157,7 @@ try {
     <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="baby" minTarget="7.7" maxTarget="*">
       <title lang="EN">Standalone Radio</title>
       <desc lang="EN">Standalone internet radio playback for Squeezebox Radio. LMS is only needed to install the applet.</desc>
-      <changes lang="EN">Applet Installer package release $version.</changes>
+      <changes lang="EN">Generic RSS podcasts, bounded streaming parsing, finite playback, pause/resume and episode Now Playing metadata.</changes>
       <creator>Sjoerd Brandsma</creator>
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>
@@ -164,7 +165,7 @@ try {
     <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="fab4" minTarget="7.7" maxTarget="*">
       <title lang="EN">Standalone Radio</title>
       <desc lang="EN">Standalone internet radio playback for Squeezebox Touch. LMS is only needed to install the applet.</desc>
-      <changes lang="EN">Applet Installer package release $version.</changes>
+      <changes lang="EN">Generic RSS podcasts, bounded streaming parsing, finite playback, pause/resume and episode Now Playing metadata.</changes>
       <creator>Sjoerd Brandsma</creator>
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>
@@ -172,7 +173,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Applet Installer package release $version.", "Add custom OPML directories and fix HTTP-to-HTTPS playlist redirects with bounded request cleanup and HLS playback.")
+	$xml = $xml.Replace("Generic RSS podcasts, bounded streaming parsing, finite playback, pause/resume and episode Now Playing metadata.", "Add custom OPML directories and fix HTTP-to-HTTPS playlist redirects with bounded request cleanup and HLS playback.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

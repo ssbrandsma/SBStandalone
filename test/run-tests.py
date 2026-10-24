@@ -9,12 +9,13 @@ from pathlib import Path
 import xml.parsers.expat
 
 from lupa.lua51 import LuaRuntime
+from lupa.lua54 import LuaRuntime as ModernLuaRuntime
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def runtime(socket_url):
-    lua = LuaRuntime(encoding=None, unpack_returned_tuples=True)
+def runtime(socket_url, modern=False):
+    lua = (ModernLuaRuntime if modern else LuaRuntime)(encoding=None, unpack_returned_tuples=True)
 
     def lom(data):
         stack, result = [], None
@@ -44,10 +45,34 @@ def runtime(socket_url):
         except xml.parsers.expat.ExpatError as error:
             return None, str(error).encode()
 
+    def sax(callbacks, separator):
+        parser = xml.parsers.expat.ParserCreate(namespace_separator=separator.decode())
+        handle = lua.table()
+        def emit(key, *args):
+            fn = callbacks[key]
+            if fn is not None:
+                return fn(handle, *args)
+        parser.StartElementHandler = lambda tag, attrs: emit(b"StartElement", tag.encode(), lua.table_from({k.encode(): v.encode() for k, v in attrs.items()}))
+        parser.EndElementHandler = lambda tag: emit(b"EndElement", tag.encode())
+        parser.CharacterDataHandler = lambda value: emit(b"CharacterData", value.encode())
+        parser.StartDoctypeDeclHandler = lambda *args: emit(b"StartDoctypeDecl")
+        parser.ExternalEntityRefHandler = lambda *args: emit(b"ExternalEntityRef") or 0
+        def parse(_, chunk=None):
+            try:
+                parser.Parse(chunk if chunk is not None else b"", chunk is None)
+                return True
+            except xml.parsers.expat.ExpatError as error:
+                return None, str(error).encode()
+        handle[b"parse"] = parse
+        handle[b"close"] = lambda _: True
+        return handle
+
+    lua.globals()[b"python_sax"] = sax
     lua.globals()[b"python_lom"] = lom
     lua.globals()[b"socket_url_path"] = str(socket_url).replace("\\", "/").encode()
     lua.execute(b"""
         os.setlocale('C')
+        package.preload['lxp']=function() return {new=function(callbacks,sep) return python_sax(callbacks,sep) end} end
         package.preload['lxp.lom']=function() return {parse=function(xml) return python_lom(xml) end} end
         package.preload['socket.url']=function() return dofile(socket_url_path) end
     """)
@@ -74,7 +99,7 @@ def main():
     os.chdir(ROOT)
     tests = sorted((ROOT / "test").glob("*test.lua"))
     for test in tests:
-        lua = runtime(args.socket_url)
+        lua = runtime(args.socket_url, modern=test.name=="podcast-playback-test.lua")
         lua.execute(test.read_bytes())
         print("PASS", test.name, flush=True)
     print(f"{len(tests)} Lua suites passed")
