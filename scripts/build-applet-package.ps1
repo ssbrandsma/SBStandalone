@@ -173,7 +173,7 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Generic RSS podcasts, bounded streaming parsing, finite playback, pause/resume and episode Now Playing metadata.", "Add custom OPML directories and fix HTTP-to-HTTPS playlist redirects with bounded request cleanup and HLS playback.")
+	$xml = $xml.Replace("Generic RSS podcasts, bounded streaming parsing, finite playback, pause/resume and episode Now Playing metadata.", "Keep Standalone playback running during background LMS reconnects; isolate stale LMS gain and decoder commands while preserving intentional library switching.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

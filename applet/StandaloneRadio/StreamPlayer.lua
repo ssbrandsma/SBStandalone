@@ -584,6 +584,63 @@ function StreamPlayer:_installHooks(playback)
 		return
 	end
 
+	-- Connection control is not user intent. Only the source chooser's committed
+	-- transition may release this decoder; background connect/updateInit/HELO
+	-- paths never enter this method. Keep this guard on the actual local player.
+	local function handoff(player, server)
+		if not self.ownsPlayback or not player or player.playback ~= playback or not server then return end
+		local address = server:getIpPort()
+		if type(address) ~= "string" or address == "" then return end
+		if address == "localhost" or (type(address) == "string" and string.match(address, "^127%.")) then return end
+		self.log:info("StandaloneRadio: releasing playback for explicit library selection")
+		self:stop()
+		self.desiredStation = nil
+		if self.callbacks.onHandoff then self.callbacks.onHandoff() end
+	end
+	local ok, chooser = pcall(require, "applets.ChooseMusicSource.ChooseMusicSourceApplet")
+	if ok and type(chooser._doConnectPlayer) == "function" then
+		local originalConnect = chooser._doConnectPlayer
+		chooser._doConnectPlayer = function(instance, player, server, ...)
+			handoff(player, server)
+			return originalConnect(instance, player, server, ...)
+		end
+		-- Selecting the already-connected library returns before _doConnectPlayer.
+		local originalSelect = chooser.selectServer
+		if type(originalSelect) == "function" then
+			chooser.selectServer = function(instance, server, ...)
+				local player = Player:getLocalPlayer()
+				if player and player:getSlimServer() == server and player:isConnected() and
+					not instance.ignoreServerConnected and not server:isPasswordProtected() and
+					(not server:getVersion() or server:isCompatible()) then
+					handoff(player, server)
+				end
+				return originalSelect(instance, server, ...)
+			end
+		end
+	else
+		self.log:warn("StandaloneRadio: source chooser unavailable; automatic handoff disabled")
+	end
+
+	-- Playback subscriptions call these methods dynamically. Do not replace the
+	-- SlimProto transport or reconnect machinery. isLocal is how stock setVolume
+	-- distinguishes physical/controller gain updates from wire audg commands.
+	local originalGain = playback._audg
+	if originalGain then
+		playback._audg = function(instance, data, isLocal)
+			if self.ownsPlayback and not isLocal then return end
+			return originalGain(instance, data, isLocal)
+		end
+	end
+	for _, name in pairs({"_strm", "_cont", "_aude"}) do
+		local original = playback[name]
+		if original then
+			playback[name] = function(instance, ...)
+				if self.ownsPlayback then return end
+				return original(instance, ...)
+			end
+		end
+	end
+
 		local originalHeaders = playback._streamHttpHeaders
 		playback._streamHttpHeaders = function(instance, headers)
 			-- Let the native player parse and accept the response before our
@@ -658,17 +715,6 @@ function StreamPlayer:_installHooks(playback)
 		-- HELO is connection control, not standalone stream metadata. Suppressing
 		-- it makes both local sbbase and an external LMS time out the connection.
 		if opcode == "HELO" then
-			local address = proto.serverip
-			local loopback = type(address) == "string" and
-				(address == "localhost" or string.match(address, "^127%."))
-			if self.ownsPlayback and address and not loopback then
-				self.log:info("StandaloneRadio: releasing playback for LMS handoff to ", tostring(address))
-				self:stop()
-				-- Keep lastStation for an explicit later play action, but prevent
-				-- delayed disconnects/headers from reviving the old stream.
-				self.desiredStation = nil
-				if self.callbacks.onHandoff then self.callbacks.onHandoff() end
-			end
 			return originalSend(proto, packet, force)
 		end
         if self.ownsPlayback and self.desiredStation and self.desiredStation.episode and opcode=="STAT" then

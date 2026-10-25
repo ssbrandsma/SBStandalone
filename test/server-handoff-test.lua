@@ -13,6 +13,22 @@ local proto = {serverip="127.0.0.1", send=function(_, packet, force)
 end}
 local playback = {slimproto=proto, _streamHttpHeaders=function() end,
     _streamDisconnect=function() end}
+local gain, commands = 0, 0
+playback._audg = function(_, data) gain=data.gainL end
+for _, name in ipairs({'_strm','_cont','_aude'}) do
+    playback[name]=function() commands=commands+1 end
+end
+local selected = {playback=playback, isConnected=function() return true end}
+local external = {getIpPort=function() return '192.168.1.10',9000 end,
+    isPasswordProtected=function() return false end, getVersion=function() return '7.9' end,
+    isCompatible=function() return true end}
+local loopback = {getIpPort=function() return '127.0.0.1',9000 end}
+selected.getSlimServer=function() return external end
+Player={getLocalPlayer=function() return selected end}
+local connections=0
+local chooser={_doConnectPlayer=function() connections=connections+1 end,
+    selectServer=function() end}
+package.preload['applets.ChooseMusicSource.ChooseMusicSourceApplet']=function() return chooser end
 local station = {id="station"}
 local player = setmetatable({ownsPlayback=true, generation=1,
     desiredStation=station, lastStation=station, playbackActive=true,
@@ -48,6 +64,25 @@ proto.serverip="192.168.1.10"
 local helo = {opcode="HELO"}
 assert(proto:send(helo, true)=="sent")
 assert(sent[3].packet==helo and sent[3].force==true)
+-- Failed reconnects and successful reconnects have identical ownership rules.
+for elapsed=13,13*38,13 do
+    proto:send({opcode='HELO',reconnect=true},true)
+    proto:send({opcode='STAT'})
+    playback:_audg({gainL=10})
+    playback:_strm({command='s'})
+    playback:_strm({command='q'})
+    playback:_cont({})
+    playback:_aude({})
+    assert(player.ownsPlayback and player.playbackActive and stops==0 and handed==0)
+    assert(player.generation==1 and player.desiredStation==station and commands==0 and gain==0)
+end
+playback:_audg({gainL=42},true) -- stock physical/controller setVolume path
+assert(gain==42)
+chooser:_doConnectPlayer(selected,loopback)
+assert(player.ownsPlayback and stops==0)
+chooser:_doConnectPlayer({playback={}},external) -- unrelated player
+assert(player.ownsPlayback and stops==0)
+chooser:_doConnectPlayer(selected,external)
 assert(not player.ownsPlayback and not player.playbackActive)
 assert(player.desiredStation==nil and player.pendingStation==nil)
 assert(player.lastStation==station and player.generation==2)
@@ -55,4 +90,15 @@ assert(stops==1 and handed==1 and metadataStops==1 and cancel==1)
 assert(proto:send({opcode="RESP"})=="sent", "External LMS packets must resume")
 proto:send({opcode="HELO"}, true)
 assert(stops==1 and handed==1, "Reconnect must not repeat the handoff")
+playback:_audg({gainL=99})
+playback:_strm({command='s'})
+assert(gain==99 and commands==1, 'Normal LMS gain and playback resume after handoff')
+-- Starting Standalone again reinstates isolation without stacking handlers.
+player.ownsPlayback=true; player.playbackActive=true
+playback:_audg({gainL=5})
+assert(gain==99)
+chooser:selectServer(external) -- already connected early-return path
+assert(stops==2 and handed==2)
+chooser:_doConnectPlayer(selected,external)
+assert(stops==2 and handed==2)
 print("server-handoff-tests-ok")
