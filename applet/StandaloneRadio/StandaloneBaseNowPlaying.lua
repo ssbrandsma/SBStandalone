@@ -203,7 +203,7 @@ function Client:_nativeRequest(method, path, payload, callback)
 		end
 	end
 	local socket = SocketHttp(jnt, self.host, self.port, "StandaloneRadioNowPlayingAPI")
-	socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.15" } end
+	socket.t_getSendHeaders = function() return { ["User-Agent"] = "StandaloneRadio/0.9.17" } end
 	self.http = socket
 	local ok, err = pcall(function() socket:fetch(request) end)
 	if not ok then finish(nil, nil, tostring(err)) end

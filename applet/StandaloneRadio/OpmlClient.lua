@@ -19,7 +19,7 @@ module(...)
 local OpmlClient = {}
 OpmlClient.__index = OpmlClient
 
-local USER_AGENT = "Standalone/0.9.15"
+local USER_AGENT = "Standalone/0.9.17"
 local MAX_OPML_BYTES = 256 * 1024
 local MAX_PLAYLIST_BYTES = 64 * 1024
 local MAX_REDIRECTS = 5

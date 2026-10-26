@@ -106,13 +106,41 @@ assert(mixed[1].localLogoPath and mixed[1].codec=="auto")
 assert(mixed[2].type=="station" and mixed[3].type=="station")
 print("Mixed custom station/directory schema, defaults, order, artwork and invalid-row isolation passed")
 
-local open=io.open;local mounted=false
+local open=io.open
+local mounts={"ubi0:ubifs /mnt/storage ubifs rw 0 0"}
 io.open=function(path,...)
- if path=="/proc/mounts" then return {lines=function() local done=false;return function() if done then return end;done=true;return mounted and "ubi0:sbdata /mnt/sbdata sbubifs rw 0 0" or "ubi0:ubifs /mnt/storage ubifs rw 0 0" end end,close=function() end} end
+ if path=="/proc/mounts" then
+  return {lines=function() local index=0;return function() index=index+1;return mounts[index] end end,close=function() end}
+ end
  return open(path,...)
 end
 local dynamic=UserStations.new({readFile=function(path) return path:find("/mnt/sbdata/",1,true) and "valid" or "directories" end,decoder=decode})
-local internal=dynamic:reload();assert(internal[1].localLogoPath=="/mnt/storage/standalonebase/radio/logos/logo-123.png")
-mounted=true;local external=dynamic:reload();assert(external[6].localLogoPath=="/mnt/sbdata/config/radio/logos/logo-123.png")
+local function checkStorage(external)
+ local list,err=dynamic:reload()
+ assert(not err)
+ assert(dynamic.path==(external and "/mnt/sbdata/config/radio/stations.json" or "/mnt/storage/standalonebase/radio/stations.json"))
+ assert(list[external and 6 or 1].localLogoPath==(external and "/mnt/sbdata/config/radio/logos/logo-123.png" or "/mnt/storage/standalonebase/radio/logos/logo-123.png"))
+end
+checkStorage(false)
+for _,device in ipairs({"ubi0:sbdata","/dev/ubi0_5"}) do
+ for _,kind in ipairs({"sbubifs","ubifs"}) do
+  mounts={"ubi0:ubifs /mnt/storage ubifs rw 0 0",device.." /mnt/sbdata "..kind.." rw 0 0"}
+  checkStorage(true) -- same revision: changing storage must also replace cached data
+ end
+end
+for _,line in ipairs({
+ "ubi0:other /mnt/sbdata ubifs rw 0 0",
+ "ubi0:other /mnt/sbdata sbubifs rw 0 0",
+ "ubi0:sbdata /mnt/sbdata tmpfs rw 0 0",
+ "ubi0:sbdata /mnt/sbdata-other ubifs rw 0 0",
+ "ubi0:sbdata /usr/share/jive/applets ubifs rw 0 0",
+ "malformed mount entry",
+}) do
+ mounts={line};checkStorage(false)
+end
+mounts={"ubi0:sbdata /mnt/sbdata ubifs rw 0 0"};checkStorage(true)
+mounts={};checkStorage(false) -- unmounted storage returns to internal config
+io.open=function(path,...) if path=="/proc/mounts" then return nil,"unavailable" end;return open(path,...) end
+checkStorage(false)
 io.open=open
-print("Internal/extended storage configuration and uploaded-logo roots follow Base's active storage")
+print("Native/legacy storage identities, invalid mounts, remounts and uploaded-logo roots follow Base")

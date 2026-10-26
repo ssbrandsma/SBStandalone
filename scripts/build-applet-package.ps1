@@ -157,7 +157,7 @@ try {
     <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="baby" minTarget="7.7" maxTarget="*">
       <title lang="EN">Standalone Radio</title>
       <desc lang="EN">Standalone internet radio playback for Squeezebox Radio. LMS is only needed to install the applet.</desc>
-      <changes lang="EN">Generic RSS podcasts, bounded streaming parsing, finite playback, pause/resume and episode Now Playing metadata.</changes>
+      <changes lang="EN">Fix custom stations on native UBIFS and add exact-name TuneIn station-logo fallback with bounded caching.</changes>
       <creator>Sjoerd Brandsma</creator>
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>
@@ -165,7 +165,7 @@ try {
     <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="fab4" minTarget="7.7" maxTarget="*">
       <title lang="EN">Standalone Radio</title>
       <desc lang="EN">Standalone internet radio playback for Squeezebox Touch. LMS is only needed to install the applet.</desc>
-      <changes lang="EN">Generic RSS podcasts, bounded streaming parsing, finite playback, pause/resume and episode Now Playing metadata.</changes>
+      <changes lang="EN">Fix custom stations on native UBIFS and add exact-name TuneIn station-logo fallback with bounded caching.</changes>
       <creator>Sjoerd Brandsma</creator>
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>
@@ -173,7 +173,6 @@ try {
   </applets>
 </extensions>
 "@
-	$xml = $xml.Replace("Generic RSS podcasts, bounded streaming parsing, finite playback, pause/resume and episode Now Playing metadata.", "Keep Standalone playback running during background LMS reconnects; isolate stale LMS gain and decoder commands while preserving intentional library switching.")
 	$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 	[System.IO.File]::WriteAllText($repositoryPath, $xml, $utf8NoBom)
 	$repositorySha1 = (Get-FileHash -LiteralPath $repositoryPath -Algorithm SHA1).Hash.ToLowerInvariant()

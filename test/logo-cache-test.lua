@@ -38,7 +38,7 @@ local cacheModule = assert(loadfile("applet/StandaloneRadio/LogoCache.lua"))("Lo
 -- Lua 5.1 module files register exports in package.loaded, not a return value.
 cacheModule = package.loaded.LogoCacheTest
 io, os = realIO, realOS
-local cache = cacheModule.new({log={warn=function() end}})
+local cache = cacheModule.new({log={warn=function() end},clock=function() return 0 end})
 cache._finishDownload = function(_, station, path, callback)
     completed[#completed+1] = path
     callback(path)

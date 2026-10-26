@@ -159,7 +159,14 @@ function UserStations:_read()
         local file=io.open("/proc/mounts","r")
         if file then
             for line in file:lines() do
-                if line:match("^%S+%s+/mnt/sbdata%s+sbubifs%s") then mounted=true;break end
+                -- Match Base's storage identity checks: newer kernels mount the
+                -- same volume natively, while legacy kernels use sbubifs.
+                local device, path, kind = line:match("^(%S+)%s+(%S+)%s+(%S+)")
+                if path == "/mnt/sbdata" and (kind == "ubifs" or kind == "sbubifs")
+                    and (device == "ubi0:sbdata" or device == "/dev/ubi0_5") then
+                    mounted = true
+                    break
+                end
             end
             file:close()
         end

@@ -264,6 +264,18 @@ timed:updateTimedMetadata({title="Next"},a,7)
 equal(timed:_snapshot().track.artwork_url,timed.stationArtwork)
 equal(timed:_snapshot().track.album,"")
 
+-- Delayed discovered station logos never overwrite another station/generation,
+-- and station-logo refreshes do not replace current track artwork.
+local oldLogo=timed.stationArtwork
+assert(not timed:updateStationArtwork("http://logo.example/stale.png",a,6))
+assert(not timed:updateStationArtwork("http://logo.example/other.png",b,7))
+equal(timed.stationArtwork,oldLogo)
+assert(timed:updateStationArtwork("http://logo.example/discovered.png",a,7))
+equal(timed:_snapshot().station.logo,"http://logo.example/discovered.png")
+timed.trackArtwork="http://track.example/current.jpg"
+assert(timed:updateStationArtwork("http://logo.example/refreshed.png",a,7))
+equal(timed:_snapshot().track.artwork_url,"http://track.example/current.jpg")
+
 -- Declared directory quality stays separate from observed HTTP/ICY quality.
 timed.station={id="directory",name="Station",codec="MP3",bitrate=192,
     homepage="https://example.org",tags="Rock",country="NL",description="Description",
