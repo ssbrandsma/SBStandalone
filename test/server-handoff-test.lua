@@ -28,7 +28,15 @@ Player={getLocalPlayer=function() return selected end}
 local connections=0
 local chooser={_doConnectPlayer=function() connections=connections+1 end,
     selectServer=function() end}
-package.preload['applets.ChooseMusicSource.ChooseMusicSourceApplet']=function() return chooser end
+local originalConnect, originalSelect = chooser._doConnectPlayer, chooser.selectServer
+-- require and the managed applet can be different objects. Jive loadfile also
+-- replaces methods when a freed applet is reopened, even with a surviving module.
+local decoy={_doConnectPlayer=originalConnect, selectServer=originalSelect}
+package.preload['applets.ChooseMusicSource.ChooseMusicSourceApplet']=function() return decoy end
+appletManager={loadApplet=function(_,name)
+    if name=='ChooseMusicSource' then return chooser end
+    return 'another-applet'
+end}
 local station = {id="station"}
 local player = setmetatable({ownsPlayback=true, generation=1,
     desiredStation=station, lastStation=station, playbackActive=true,
@@ -44,6 +52,17 @@ local player = setmetatable({ownsPlayback=true, generation=1,
 }, {__index=StreamPlayer})
 player:_installHooks(playback)
 player:_installHooks(playback) -- Hook installation must be idempotent.
+assert(decoy._doConnectPlayer==originalConnect, 'Only the managed chooser must be patched')
+for reopen=1,3 do
+    chooser._doConnectPlayer=originalConnect
+    chooser.selectServer=originalSelect
+    assert(appletManager:loadApplet('ChooseMusicSource')==chooser)
+    local wrapped=chooser._doConnectPlayer
+    appletManager:loadApplet('ChooseMusicSource')
+    assert(chooser._doConnectPlayer==wrapped, 'Cached loads must not stack hooks')
+    assert(appletManager:loadApplet('Unrelated')=='another-applet')
+    assert(player.ownsPlayback and stops==0, 'Opening a chooser is not a switch')
+end
 local tracedHeaders, tracedClose
 player.streamTrace={headers=function(_,status,headers) tracedHeaders={status,headers} end,
     finish=function(_,reason,bytes) tracedClose={reason,bytes} end}
@@ -101,4 +120,12 @@ chooser:selectServer(external) -- already connected early-return path
 assert(stops==2 and handed==2)
 chooser:_doConnectPlayer(selected,external)
 assert(stops==2 and handed==2)
+-- Fully freed/recreated instance, not just overwritten class methods.
+chooser={_doConnectPlayer=originalConnect,selectServer=originalSelect}
+appletManager:loadApplet('ChooseMusicSource')
+player.ownsPlayback=true;player.playbackActive=true
+proto:send({opcode='HELO'},true)
+assert(player.ownsPlayback and stops==2)
+chooser:_doConnectPlayer(selected,external)
+assert(stops==3 and handed==3 and not player.ownsPlayback)
 print("server-handoff-tests-ok")

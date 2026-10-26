@@ -157,7 +157,7 @@ try {
     <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="baby" minTarget="7.7" maxTarget="*">
       <title lang="EN">Standalone Radio</title>
       <desc lang="EN">Standalone internet radio playback for Squeezebox Radio. LMS is only needed to install the applet.</desc>
-      <changes lang="EN">Fix custom stations on native UBIFS and add exact-name TuneIn station-logo fallback with bounded caching.</changes>
+      <changes lang="EN">Include managed LMS handoff and local playback-owner fixes alongside native UBIFS stations and exact-name logo fallback.</changes>
       <creator>Sjoerd Brandsma</creator>
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>
@@ -165,7 +165,7 @@ try {
     <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="fab4" minTarget="7.7" maxTarget="*">
       <title lang="EN">Standalone Radio</title>
       <desc lang="EN">Standalone internet radio playback for Squeezebox Touch. LMS is only needed to install the applet.</desc>
-      <changes lang="EN">Fix custom stations on native UBIFS and add exact-name TuneIn station-logo fallback with bounded caching.</changes>
+      <changes lang="EN">Include managed LMS handoff and local playback-owner fixes alongside native UBIFS stations and exact-name logo fallback.</changes>
       <creator>Sjoerd Brandsma</creator>
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>

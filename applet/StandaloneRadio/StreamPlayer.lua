@@ -1,4 +1,6 @@
 local pairs, pcall, setmetatable, tonumber, tostring, type = pairs, pcall, setmetatable, tonumber, tostring, type
+local require = require
+local appletManager = appletManager
 
 local math = require("math")
 local string = require("string")
@@ -597,8 +599,10 @@ function StreamPlayer:_installHooks(playback)
 		self.desiredStation = nil
 		if self.callbacks.onHandoff then self.callbacks.onHandoff() end
 	end
-	local ok, chooser = pcall(require, "applets.ChooseMusicSource.ChooseMusicSourceApplet")
-	if ok and type(chooser._doConnectPlayer) == "function" then
+	local function patchChooser(chooser)
+		if type(chooser) ~= "table" or type(chooser._doConnectPlayer) ~= "function" then return false end
+		if chooser._standaloneRadioHandoff == chooser._doConnectPlayer and
+			chooser._standaloneRadioHandoffOwner == self then return true end
 		local originalConnect = chooser._doConnectPlayer
 		chooser._doConnectPlayer = function(instance, player, server, ...)
 			handoff(player, server)
@@ -617,7 +621,34 @@ function StreamPlayer:_installHooks(playback)
 				return originalSelect(instance, server, ...)
 			end
 		end
+		chooser._standaloneRadioHandoff = chooser._doConnectPlayer
+		chooser._standaloneRadioHandoffOwner = self
+		return true
+	end
+	-- AppletManager executes loadfile and can replace methods loaded by require.
+	-- Its managed instance (including every reopen after free) must be patched.
+	local manager = appletManager
+	local ok, patched
+	if manager and type(manager.loadApplet) == "function" then
+		manager._standaloneRadioPatchChooser = patchChooser
+		if manager._standaloneRadioChooserLoader ~= manager.loadApplet then
+			local originalLoad = manager.loadApplet
+			local wrapped = function(instance, name, ...)
+				local applet = originalLoad(instance, name, ...)
+				if name == "ChooseMusicSource" then instance._standaloneRadioPatchChooser(applet) end
+				return applet
+			end
+			manager.loadApplet = wrapped
+			manager._standaloneRadioChooserLoader = wrapped
+		end
+		ok, patched = pcall(function() return patchChooser(manager:loadApplet("ChooseMusicSource")) end)
 	else
+		-- Standalone fixtures and alternative Jive loaders without AppletManager.
+		ok, patched = pcall(function()
+			return patchChooser(require("applets.ChooseMusicSource.ChooseMusicSourceApplet"))
+		end)
+	end
+	if not ok or not patched then
 		self.log:warn("StandaloneRadio: source chooser unavailable; automatic handoff disabled")
 	end
 
@@ -778,6 +809,13 @@ function StreamPlayer:_begin(station, reconnect)
 		self:_notifyState(station, "FAILED", true)
 		self.log:warn("StandaloneRadio: ", err)
 		return false
+	end
+	-- Audio is always started on this Radio's local decoder. Keep the UI's
+	-- library chooser on that same player instead of a remembered remote/orphan
+	-- player. Background stream recovery must not change a user's selection.
+	if not reconnect and Player:getCurrentPlayer() ~= player then
+		self.log:info("StandaloneRadio: selecting the local playback owner")
+		Player:setCurrentPlayer(player)
 	end
 	self:_installHooks(playback)
 	-- Do not disconnect SlimProto here. StandaloneBase is a loopback-only LMS;
