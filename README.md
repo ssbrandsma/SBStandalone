@@ -28,6 +28,10 @@ This project does not flash firmware or enable SSH for you. If SSH is not alread
 
 ## Install
 
+<img width="1700" height="1092" alt="image" src="https://github.com/user-attachments/assets/e5468116-46c0-44dc-a931-e716e5c5f0ae" />
+
+Or manually: 
+
 1. Clone or download this project onto the Windows machine.
 2. Find the radio's IP address in your router's DHCP client list, then confirm it is reachable:
 
