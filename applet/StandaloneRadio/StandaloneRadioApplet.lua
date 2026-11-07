@@ -34,7 +34,7 @@ local UrlTransport = require("applets.StandaloneRadio.UrlTransport")
 local log = require("jive.utils.log").logger("StandaloneRadio")
 local appletManager = appletManager
 local jiveMain = jiveMain
--- Base is optional; only its identified local player may resume from standby.
+-- Base is optional; only its identified local player may resume stopped Radio.
 local hasServerMigration, ServerMigration = pcall(require, "applets.StandaloneBase.ServerMigration")
 
 local AUTOTEST_MARKER = "/tmp/standalone-radio-autotest"
@@ -864,9 +864,12 @@ function enableStandaloneMode(self)
 		if not self.streamPlayer.ownsPlayback then
 			local player = appletManager:callService("getCurrentPlayer")
 			local server = player and player:isLocal() and player:getSlimServer()
-			if not hasServerMigration or jiveMain:getSoftPowerState() ~= "off" or not server or
+			if not hasServerMigration or not server or
 				server.id ~= ServerMigration.LOCAL_UUID or not self.lastStation then return EVENT_UNUSED end
-			jiveMain:setSoftPowerState("on")
+			if jiveMain:getSoftPowerState() ~= "off" and not self.streamPlayer.resumeAfterStop then
+				return EVENT_UNUSED
+			end
+			if jiveMain:getSoftPowerState() == "off" then jiveMain:setSoftPowerState("on") end
 			self:_playStation(self.lastStation)
 			return EVENT_CONSUME
 		end

@@ -16,7 +16,9 @@ local instance=setmetatable({generation=0,stationGeneration=0,callbacks={onSelec
     _cancelReconnect=function() end,_resetWatchdog=function() end,_resetAudioRecovery=function() end,
     _installHooks=function(_,playback) assert(playback==actual.playback) end,
     _notifyState=function() end,_resolveStreamRedirect=function() end}, {__index=prototype})
+instance.resumeAfterStop=true
 assert(instance:_begin({id='npo-radio-2'},false))
+assert(not instance.resumeAfterStop,'A new Radio start must clear stopped-owner permission')
 assert(current==actual and selections==1)
 assert(instance:_begin({id='another-station'},false))
 assert(current==actual and selections==1,'Do not reselect the same player')
