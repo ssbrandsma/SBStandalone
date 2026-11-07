@@ -586,6 +586,21 @@ function StreamPlayer:_installHooks(playback)
 		return
 	end
 
+	-- LocalPlayer:setPower(false) only pauses the native decoder. Stop our
+	-- independently managed stream first, so recovery cannot unpause/reconnect
+	-- it behind the powered-off clock. Preserve the stock power transition.
+	local player = Player:getLocalPlayer()
+	if player and player.playback == playback and type(player.setPower) == "function" then
+		local originalPower = player.setPower
+		player.setPower = function(instance, on, ...)
+			if not on and self.ownsPlayback then
+				self.log:info("StandaloneRadio: power off stops standalone playback")
+				self:stop()
+			end
+			return originalPower(instance, on, ...)
+		end
+	end
+
 	-- Connection control is not user intent. Only the source chooser's committed
 	-- transition may release this decoder; background connect/updateInit/HELO
 	-- paths never enter this method. Keep this guard on the actual local player.
@@ -913,10 +928,12 @@ end
 
 
 function StreamPlayer:stop(state)
+	-- Invalidate in-flight callbacks before cancellation can call them back.
+	self.generation = self.generation + 1
+	self.desiredStation = nil
     self.paused=false;self.episodeEOF=false;self.lastPosition=nil
 	if self.hlsMetadata then self.hlsMetadata:stop() end
 	if self.playlistResolver and self.playlistResolver.cancelPlaylist then self.playlistResolver:cancelPlaylist() end
-	self.generation = self.generation + 1
 	self.ownsPlayback = false
 	self:_cancelReconnect()
 	self.pendingStation = nil

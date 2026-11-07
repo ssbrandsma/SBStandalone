@@ -34,6 +34,7 @@ player:_audioRecoveryTick();assert(states[#states]=="FAILED")
 -- Run the real native callback adapter: network FIN and decoder completion
 -- must not discard buffered audio; only output completion stops the episode.
 local playback={_streamHttpHeaders=function() end,_streamDisconnect=function() end,slimproto={send=function() return true end}}
+Player={getLocalPlayer=function() return {playback=playback} end}
 player.desiredStation=ep;player.lastStation=ep;player.playbackActive=true;player.ownsPlayback=true
 player:_installHooks(playback)
 local stops=calls.stop

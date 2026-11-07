@@ -33,6 +33,9 @@ local UrlTransport = require("applets.StandaloneRadio.UrlTransport")
 
 local log = require("jive.utils.log").logger("StandaloneRadio")
 local appletManager = appletManager
+local jiveMain = jiveMain
+-- Base is optional; only its identified local player may resume from standby.
+local hasServerMigration, ServerMigration = pcall(require, "applets.StandaloneBase.ServerMigration")
 
 local AUTOTEST_MARKER = "/tmp/standalone-radio-autotest"
 local DEFAULT_COUNTRY_CODE = "NL"
@@ -79,7 +82,7 @@ function _ensureComponents(self)
 		log = log,
 		httpsProxyStatus = self.httpsProxyStatus,
 	})
-	self.lastStation = self.presetStore:getPreset(settings.lastPreset or 1)
+	self.lastStation = self.presetStore:getLastStation()
 	self.radioFeeds = OpmlClient.new({log=log,httpsProxyStatus=self.httpsProxyStatus,provider=OpmlProviders.get("radiofeeds")})
     self.opmlClients={radiofeeds=self.radioFeeds,tunein=OpmlClient.new({log=log,httpsProxyStatus=self.httpsProxyStatus,
         provider=OpmlProviders.get("tunein",{partnerId=settings.tuneInPartnerId})})}
@@ -149,6 +152,7 @@ function _ensureComponents(self)
 				self.trackArtwork:reset(station)
 				self.baseNowPlaying:activate(station, stationGeneration)
 				settings.lastStationId = station.id
+				self.presetStore:rememberStation(station)
 				if station.preset then
 					settings.lastPreset = station.preset
 				end
@@ -826,8 +830,7 @@ function enableStandaloneMode(self)
 			_logInfo("preset action ", station.id)
 			self:_playStation(station)
 		else
-			_logInfo("preset action ignored; no station assigned")
-			self:_showPopup(self:string("STANDALONE_RADIO_NO_STATION_SELECTED"))
+			return EVENT_UNUSED
 		end
 		return EVENT_CONSUME
 	end
@@ -840,19 +843,47 @@ function enableStandaloneMode(self)
 			end, -100))
 		table.insert(self.listenerHandles, Framework:addActionListener("set_preset_" .. i, self,
 			function()
+				if not self.streamPlayer.ownsPlayback then return EVENT_UNUSED end
 				self:_assignPreset(i)
 				return EVENT_CONSUME
 			end, -100))
 	end
 
 	local function stopAction()
+		if not self.streamPlayer.ownsPlayback then return EVENT_UNUSED end
 		self.streamPlayer:stop()
 		return EVENT_CONSUME
 	end
-	table.insert(self.listenerHandles, Framework:addActionListener("pause", self, function() self.streamPlayer:pause();return EVENT_CONSUME end, -100))
-	table.insert(self.listenerHandles, Framework:addActionListener("stop", self, stopAction, -100))
-	table.insert(self.listenerHandles, Framework:addActionListener("play", self, function()
-		self.streamPlayer:play()
+	table.insert(self.listenerHandles, Framework:addActionListener("pause", self, function()
+		if not self.streamPlayer.ownsPlayback then return EVENT_UNUSED end
+		self.streamPlayer:pause()
 		return EVENT_CONSUME
 	end, -100))
+	table.insert(self.listenerHandles, Framework:addActionListener("stop", self, stopAction, -100))
+	local function playAction()
+		if not self.streamPlayer.ownsPlayback then
+			local player = appletManager:callService("getCurrentPlayer")
+			local server = player and player:isLocal() and player:getSlimServer()
+			if not hasServerMigration or jiveMain:getSoftPowerState() ~= "off" or not server or
+				server.id ~= ServerMigration.LOCAL_UUID or not self.lastStation then return EVENT_UNUSED end
+			jiveMain:setSoftPowerState("on")
+			self:_playStation(self.lastStation)
+			return EVENT_CONSUME
+		end
+		if jiveMain:getSoftPowerState() == "off" then jiveMain:setSoftPowerState("on") end
+		self.streamPlayer:play()
+		return EVENT_CONSUME
+	end
+	-- Framework sorts negative priorities by absolute value. Run before the
+	-- stock ScreenSavers listener (-100), regardless of applet load order.
+	table.insert(self.listenerHandles, Framework:addActionListener("play", self, playAction, -10))
+	-- The powered-off clock handles raw IR input inside its window, converts
+	-- Play synchronously and queues Pause after waking. No global Play action
+	-- is emitted, so intercept the short IR press before it reaches that window.
+	table.insert(self.listenerHandles, Framework:addListener(EVENT_IR_PRESS, function(event)
+		if jiveMain:getSoftPowerState() == "off" and Framework:getAction(event) == "play" then
+			return playAction()
+		end
+		return EVENT_UNUSED
+	end, -10))
 end

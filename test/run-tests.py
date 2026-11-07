@@ -99,7 +99,7 @@ def main():
     os.chdir(ROOT)
     tests = sorted((ROOT / "test").glob("*test.lua"))
     for test in tests:
-        lua = runtime(args.socket_url, modern=test.name=="podcast-playback-test.lua")
+        lua = runtime(args.socket_url, modern=test.name in {"podcast-playback-test.lua", "standby-playback-test.lua"})
         lua.execute(test.read_bytes())
         print("PASS", test.name, flush=True)
     print(f"{len(tests)} Lua suites passed")

@@ -102,6 +102,17 @@ function PresetStore:getPreset(number)
 end
 
 
+function PresetStore:getLastStation()
+	local station = self.settings.lastStation
+	if station and Stations.normalize(station) then return station end
+	return self:getPreset(self.settings.lastPreset or 1)
+end
+
+function PresetStore:rememberStation(station)
+	self.settings.lastStation = clonePreset(station, station.preset)
+end
+
+
 function PresetStore:assign(number, station)
 	number = tonumber(number)
 	if not number or number < 1 or number > 6 or not station then
