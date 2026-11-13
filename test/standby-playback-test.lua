@@ -27,7 +27,7 @@ local code=method('_isStandby','_notifyState')..method('_powerKeepaliveTick','_s
     ..method('_cancelReconnect','_stopPlayback')..method('_scheduleReconnect','_handleDisconnect')
     ..method('_handleDisconnect','_finishRedirectProbe')..method('_installHooks','_begin')
     ..method('stop','stopConnecting')..method('play','getCurrentStation')
-    ..method('ownershipReleaseHooks','ownershipGranted')
+    ..method('ownershipReleaseHooks','ownershipGranted')..method('ownershipGranted','createOwnership')
 assert((loadstring or load)('local StreamPlayer,Player,decode,Framework,Timer,localPlayback=...;'
     ..'local DECODE_UNDERRUN=2;local WATCHDOG_STALL_POLLS=2;local reconnectDelays={2000};'
     ..'local UrlTransport={isHttps=function() return false end};'..code))(
@@ -124,3 +124,12 @@ localPlayer:setPower(false,11,true)
 assert(calls.stop==stopped and calls.sequence==11,'Revoked power hook must leave playback alone')
 assert(player:ownershipReleaseHooks() and localPlayer.setPower==nativePower)
 print('Ownership power hook restoration, reinstallation and retired callback isolation passed')
+
+-- Granting decoder ownership retains selection without creating recovery intent.
+player._startWatchdog=function() end
+player._startAudioRecovery=function() end
+player._startPowerKeepalive=function() end
+player.ownershipStation=station;player.desiredStation=station
+player:ownershipGranted()
+assert(player.lastStation==station and player.desiredStation==nil,
+    'An ownership grant must wait for explicit Play before enabling recovery')

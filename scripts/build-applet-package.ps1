@@ -158,7 +158,7 @@ try {
     <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="baby" minTarget="7.7" maxTarget="*">
       <title lang="EN">Standalone Radio</title>
       <desc lang="EN">Standalone internet radio playback for Squeezebox Radio. LMS is only needed to install the applet.</desc>
-      <changes lang="EN">Prevent standby recovery and queued reconnects from restarting audio; retain opt-in playback ownership support.</changes>
+      <changes lang="EN">Fix standby power-off and explicit Play resume, preserve other sources transport controls, remember the last station, and restore ownership hooks safely.</changes>
       <creator>Sjoerd Brandsma</creator>
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>
@@ -166,7 +166,7 @@ try {
     <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="fab4" minTarget="7.7" maxTarget="*">
       <title lang="EN">Standalone Radio</title>
       <desc lang="EN">Standalone internet radio playback for Squeezebox Touch. LMS is only needed to install the applet.</desc>
-      <changes lang="EN">Prevent standby recovery and queued reconnects from restarting audio; retain opt-in playback ownership support.</changes>
+      <changes lang="EN">Fix standby power-off and explicit Play resume, preserve other sources transport controls, remember the last station, and restore ownership hooks safely.</changes>
       <creator>Sjoerd Brandsma</creator>
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>

@@ -1111,7 +1111,8 @@ end
 function StreamPlayer:ownershipGranted()
     self:_startWatchdog();self:_startAudioRecovery();self:_startPowerKeepalive()
     -- Retain selection; restarting remains a fresh user play action.
-    self.desiredStation=self.ownershipStation or self.lastStation
+    self.lastStation=self.ownershipStation or self.lastStation
+    self.desiredStation=nil
 end
 
 function StreamPlayer:createOwnership(options)
