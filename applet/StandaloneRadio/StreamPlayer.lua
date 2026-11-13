@@ -279,6 +279,12 @@ end
 
 
 function StreamPlayer:_watchdogTick()
+	-- Parameter synchronization is needed even before the first station starts.
+	-- Defer hook installation until the firmware has created its local player.
+	if not self.hookedPlayback and Player and self._installHooks then
+		local player = Player:getLocalPlayer()
+		if player and player.playback then self:_installHooks(player.playback) end
+	end
 	if self:_standbyFence() then return end
     if self.ownership and not self.ownership:canStart() then return false end
 	local station = self.desiredStation
@@ -637,6 +643,49 @@ function StreamPlayer:_installHooks(playback)
 		end
 		if self.ownership and not self.ownershipHooks:record(player, "setPower", originalPower) then
 			error("ownership power hook recording failed")
+		end
+	end
+
+
+	-- Stock Player refreshes volume/power for every stale sequence snapshot.
+	-- Base can publish both intermediate volume and power snapshots, causing
+	-- each refresh to advance the sequence again before its echo arrives.
+	-- Coalesce identical refreshes briefly on the identified loopback Base only.
+	local hasMigration, migration = pcall(require, "applets.StandaloneBase.ServerMigration")
+	if hasMigration and player and type(player.refreshLocallyMaintainedParameters) == "function" then
+		local originalRefresh = player.refreshLocallyMaintainedParameters
+		local refreshed
+		player.refreshLocallyMaintainedParameters = function(instance, ...)
+			local server = instance:getSlimServer()
+			local address = server and server:getIpPort()
+			if server and server.id == migration.LOCAL_UUID and
+				(address == "localhost" or (type(address) == "string" and string.match(address, "^127%."))) then
+				local now = Framework:getTicks()
+				local sequence = instance:getCurrentSequenceNumber()
+				-- Base survives a SqueezePlay restart; the firmware counter does not.
+				-- Rebase this loopback controller before publishing its local values,
+				-- rather than incrementing thousands of rejected stale commands.
+				local serverSequence = instance.state and tonumber(instance.state.seq_no)
+				if serverSequence and serverSequence > sequence and instance.playback and
+					type(instance.playback.sequenceNumber) == "number" then
+					instance.playback.sequenceNumber = serverSequence
+					sequence = instance:getCurrentSequenceNumber()
+				end
+				local volume = instance:getVolume()
+				local power = jiveMain:getSoftPowerState()
+				if refreshed and refreshed.server == server and refreshed.sequence == sequence and
+					refreshed.volume == volume and refreshed.power == power and
+					now >= refreshed.at and now - refreshed.at < 2000 then return end
+				originalRefresh(instance, ...)
+				refreshed = {server=server, sequence=instance:getCurrentSequenceNumber(),
+					volume=volume, power=power, at=now}
+				return
+			end
+			refreshed = nil
+			return originalRefresh(instance, ...)
+		end
+		if self.ownership and not self.ownershipHooks:record(player, "refreshLocallyMaintainedParameters", originalRefresh) then
+			error("ownership parameter sync hook recording failed")
 		end
 	end
 

@@ -78,3 +78,21 @@ owner's playback. The combined standby fixture covers restoration, reinstallatio
 and callbacks after epoch changes or revocation. Ownership remains opt-in and
 requires Standalone Base's OwnershipRuntime, OwnershipBinding and OwnershipHooks
 modules; ordinary startup does not load or enable that integration.
+
+## Local Base synchronization after a SqueezePlay restart
+
+Base can outlive SqueezePlay and retain a higher player sequence number than
+its restarted local controller. Stock Jive responds to each mismatched status
+snapshot by sending volume followed by power with a new sequence. Intermediate
+snapshots can trigger the same refresh again, filling its Comet request queue.
+
+Radio installs its compatibility hooks when the local player becomes available
+on the watchdog tick, even before the first station starts. Only for Standalone
+Base's UUID on a loopback address, a refresh rebases an older firmware counter
+to the advertised Base sequence and briefly coalesces unchanged refreshes.
+Volume, power and sequence changes pass immediately; unchanged refreshes may
+retry after two seconds. External LMS synchronization remains native. The
+refresh hook participates in opt-in ownership restoration.
+
+The local-parameter-sync fixture covers feedback convergence, counter reset,
+state changes, retry timing, external-server passthrough and hook recording.
