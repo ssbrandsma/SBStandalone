@@ -79,6 +79,7 @@ function new(options)
 		watchdogStalls = 0,
 		audioUnderrunRecovered = false,
 		ownsPlayback = false,
+		resumeAfterStop = false,
 		httpsProxyStatus = options.httpsProxyStatus,
 	}, StreamPlayer)
 	player.resolver = Resolver.new({
@@ -586,16 +587,33 @@ function StreamPlayer:_installHooks(playback)
 		return
 	end
 
+	-- LocalPlayer:setPower(false) only pauses the native decoder. Stop our
+	-- independently managed stream first, so recovery cannot unpause/reconnect
+	-- it behind the powered-off clock. Preserve the stock power transition.
+	local player = Player:getLocalPlayer()
+	if player and player.playback == playback and type(player.setPower) == "function" then
+		local originalPower = player.setPower
+		player.setPower = function(instance, on, ...)
+			if not on and self.ownsPlayback then
+				self.log:info("StandaloneRadio: power off stops standalone playback")
+				self:stop()
+			end
+			return originalPower(instance, on, ...)
+		end
+	end
+
 	-- Connection control is not user intent. Only the source chooser's committed
 	-- transition may release this decoder; background connect/updateInit/HELO
 	-- paths never enter this method. Keep this guard on the actual local player.
 	local function handoff(player, server)
-		if not self.ownsPlayback or not player or player.playback ~= playback or not server then return end
+		if not player or player.playback ~= playback or not server then return end
 		local address = server:getIpPort()
 		if type(address) ~= "string" or address == "" then return end
 		if address == "localhost" or (type(address) == "string" and string.match(address, "^127%.")) then return end
+		if not self.ownsPlayback then self.resumeAfterStop = false; return end
 		self.log:info("StandaloneRadio: releasing playback for explicit library selection")
 		self:stop()
+		self.resumeAfterStop = false
 		self.desiredStation = nil
 		if self.callbacks.onHandoff then self.callbacks.onHandoff() end
 	end
@@ -667,6 +685,10 @@ function StreamPlayer:_installHooks(playback)
 		if original then
 			playback[name] = function(instance, ...)
 				if self.ownsPlayback then return end
+				if name == "_strm" then
+					local data = ...
+					if type(data) == "table" and data.command == "s" then self.resumeAfterStop = false end
+				end
 				return original(instance, ...)
 			end
 		end
@@ -784,6 +806,7 @@ function StreamPlayer:_begin(station, reconnect)
 	if self.hlsMetadata then self.hlsMetadata:stop() end
 	self:_cancelReconnect()
 	self.ownsPlayback = true
+	self.resumeAfterStop = false
 	self.generation = self.generation + 1
 	local generation = self.generation
 	self.desiredStation = station
@@ -913,10 +936,14 @@ end
 
 
 function StreamPlayer:stop(state)
+	-- A stopped Radio may resume while awake, until another source takes over.
+	if self.ownsPlayback then self.resumeAfterStop = state == nil or state == "STOPPED" end
+	-- Invalidate in-flight callbacks before cancellation can call them back.
+	self.generation = self.generation + 1
+	self.desiredStation = nil
     self.paused=false;self.episodeEOF=false;self.lastPosition=nil
 	if self.hlsMetadata then self.hlsMetadata:stop() end
 	if self.playlistResolver and self.playlistResolver.cancelPlaylist then self.playlistResolver:cancelPlaylist() end
-	self.generation = self.generation + 1
 	self.ownsPlayback = false
 	self:_cancelReconnect()
 	self.pendingStation = nil
