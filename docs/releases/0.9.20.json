@@ -1,0 +1,22 @@
+{
+  "version": "0.9.20",
+  "published_date": "2026-11-13",
+  "targets": [
+    "baby",
+    "fab4"
+  ],
+  "url": "http://49.12.198.91/sbstandalone/StandaloneRadio-0.9.20.zip",
+  "sha1": "2b139f6e14ba032aa9b9e47f9f4c1b038d9b4d0c",
+  "sha256": "f46460b59232540eaf4ccb74438d94f90bc22745367332ddc05cefa46fe8b489",
+  "changes": "Fix standby and explicit Play resume, respect other sources controls, remember the last station, and prevent local Base synchronization reconnect loops.",
+  "repositories": [
+    "http://49.12.198.91/sbstandalone/extensions.xml",
+    "http://www.bytestack.nl/squeezebox/extensions.xml"
+  ],
+  "validation": {
+    "lua_suites": 29,
+    "powershell_checks": 4,
+    "public_package_hash_verified": true,
+    "live_bootstrap_config_verified": true
+  }
+}

@@ -89,6 +89,7 @@ selection and ZIP extraction so the applet appears in the Home menu.
 
 Radio **0.9.20** integrates immediate power-off handling, explicit Play resume,
 transport controls that respect other sources, and last-station persistence.
+Local Base synchronization avoids reconnect loops after a SqueezePlay restart.
 Opt-in ownership restores power hooks on release and waits for explicit Play
 after a grant. See [playback lifecycle](docs/PLAYBACK_LIFECYCLE.md).
 
