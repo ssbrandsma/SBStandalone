@@ -1,6 +1,7 @@
 local pairs, pcall, setmetatable, tonumber, tostring, type = pairs, pcall, setmetatable, tonumber, tostring, type
 local require = require
 local appletManager = appletManager
+local jiveMain = jiveMain
 
 local math = require("math")
 local string = require("string")
@@ -92,8 +93,32 @@ function new(options)
 end
 
 
+function StreamPlayer:_isStandby()
+    if not jiveMain or type(jiveMain.getSoftPowerState) ~= "function" then return false end
+    local ok, state = pcall(function() return jiveMain:getSoftPowerState() end)
+    return not ok or state == "off"
+end
+
+-- Standby is explicit stop intent, never an underrun to recover. Invalidate
+-- pending DNS/redirect/reconnect callbacks and retain only lastStation for a
+-- later explicit Play; waking the UI alone must not restart a stream.
+function StreamPlayer:_standbyFence()
+    if not self:_isStandby() then return false end
+    if self.ownsPlayback or self.desiredStation or self.pendingStation or self.reconnectTimer or self.playbackActive then
+        if self.ownsPlayback then self:stop("STOPPED") end
+        self.generation = self.generation + 1
+        self:_cancelReconnect()
+        self.desiredStation = nil
+        self.pendingStation = nil
+        self.playbackActive = false
+        self:_resetWatchdog()
+        self:_resetAudioRecovery()
+    end
+    return true
+end
+
 function StreamPlayer:_isCurrent(generation, station)
-	return self.generation == generation and self.desiredStation == station
+	return not self:_isStandby() and (not self.ownership or self.ownership:canStart()) and self.generation == generation and self.desiredStation == station
 end
 
 
@@ -168,6 +193,8 @@ end
 
 
 function StreamPlayer:_powerKeepaliveTick()
+	if self:_standbyFence() then return end
+    if self.ownership and not self.ownership:canStart() then return false end
 	if not self.playbackActive or self.intentionalStop then
 		return
 	end
@@ -203,6 +230,8 @@ end
 
 
 function StreamPlayer:_audioRecoveryTick()
+	if self:_standbyFence() then return end
+    if self.ownership and not self.ownership:canStart() then return false end
 	if not self.playbackActive or self.intentionalStop or self.paused then
 		self:_resetAudioRecovery()
 		return
@@ -250,6 +279,8 @@ end
 
 
 function StreamPlayer:_watchdogTick()
+	if self:_standbyFence() then return end
+    if self.ownership and not self.ownership:canStart() then return false end
 	local station = self.desiredStation
 	if not station or self.intentionalStop or self.paused or self.episodeEOF or self.pendingStation or self.reconnectTimer then
 		self:_resetWatchdog()
@@ -349,6 +380,7 @@ end
 
 
 function StreamPlayer:_scheduleReconnect(station, generation, redirect)
+	if self:_standbyFence() then return end
     if station and station.episode and not redirect then self:stop("FAILED");return end
 	if not self:_isCurrent(generation, station) or self.reconnectTimer then
 		return
@@ -583,6 +615,7 @@ function StreamPlayer:_startHlsMetadata(session)
 end
 
 function StreamPlayer:_installHooks(playback)
+    if self.ownership and not self.ownership:canStart() then return false end
 	if self.hookedPlayback == playback then
 		return
 	end
@@ -593,15 +626,21 @@ function StreamPlayer:_installHooks(playback)
 	local player = Player:getLocalPlayer()
 	if player and player.playback == playback and type(player.setPower) == "function" then
 		local originalPower = player.setPower
+		local powerEpoch = self.ownership and self.ownership.epoch
 		player.setPower = function(instance, on, ...)
-			if not on and self.ownsPlayback then
+			if not on and self.ownsPlayback and (not self.ownership or
+				(self.ownership.epoch == powerEpoch and self.ownership:canStart())) then
 				self.log:info("StandaloneRadio: power off stops standalone playback")
 				self:stop()
 			end
 			return originalPower(instance, on, ...)
 		end
+		if self.ownership and not self.ownershipHooks:record(player, "setPower", originalPower) then
+			error("ownership power hook recording failed")
+		end
 	end
 
+    if not self.ownership then
 	-- Connection control is not user intent. Only the source chooser's committed
 	-- transition may release this decoder; background connect/updateInit/HELO
 	-- paths never enter this method. Keep this guard on the actual local player.
@@ -670,12 +709,26 @@ function StreamPlayer:_installHooks(playback)
 		self.log:warn("StandaloneRadio: source chooser unavailable; automatic handoff disabled")
 	end
 
+    end
+
+    local ownershipEpoch=self.ownership and self.ownership.epoch
+    local function retiredOwnershipHook()
+        return self.ownership and (self.ownership.epoch~=ownershipEpoch or not self.ownership:canStart())
+    end
+    local ownershipOriginals = {}
+    if self.ownership then
+        for _,key in pairs({"_audg","_strm","_cont","_aude","_streamHttpHeaders","_streamDisconnect"}) do
+            ownershipOriginals[key]=playback[key]
+        end
+        ownershipOriginals.send=playback.slimproto.send
+    end
 	-- Playback subscriptions call these methods dynamically. Do not replace the
 	-- SlimProto transport or reconnect machinery. isLocal is how stock setVolume
 	-- distinguishes physical/controller gain updates from wire audg commands.
 	local originalGain = playback._audg
 	if originalGain then
 		playback._audg = function(instance, data, isLocal)
+            if retiredOwnershipHook() then return end
 			if self.ownsPlayback and not isLocal then return end
 			return originalGain(instance, data, isLocal)
 		end
@@ -684,6 +737,7 @@ function StreamPlayer:_installHooks(playback)
 		local original = playback[name]
 		if original then
 			playback[name] = function(instance, ...)
+                if retiredOwnershipHook() then return end
 				if self.ownsPlayback then return end
 				if name == "_strm" then
 					local data = ...
@@ -696,6 +750,7 @@ function StreamPlayer:_installHooks(playback)
 
 		local originalHeaders = playback._streamHttpHeaders
 		playback._streamHttpHeaders = function(instance, headers)
+            if retiredOwnershipHook() then return end
 			-- Let the native player parse and accept the response before our
 			-- diagnostic/redirect handling examines it.
 			originalHeaders(instance, headers)
@@ -753,6 +808,7 @@ function StreamPlayer:_installHooks(playback)
 		end
 
 		if self.desiredStation and not self.intentionalStop then
+			if self:_standbyFence() then return end
 			self.playbackActive = true
 			self:_powerKeepaliveTick()
 			self.retryIndex = 1
@@ -764,6 +820,7 @@ function StreamPlayer:_installHooks(playback)
 	local slimproto = playback.slimproto
 	local originalSend = slimproto.send
 	slimproto.send = function(proto, packet, force)
+        if retiredOwnershipHook() then return end
 		local opcode = type(packet) == "table" and packet.opcode or nil
 		-- HELO is connection control, not standalone stream metadata. Suppressing
 		-- it makes both local sbbase and an external LMS time out the connection.
@@ -790,17 +847,29 @@ function StreamPlayer:_installHooks(playback)
 
 	local originalDisconnect = playback._streamDisconnect
 	playback._streamDisconnect = function(instance, reason, flush)
+        if retiredOwnershipHook() then
+            if self.ownershipCleaning then return originalDisconnect(instance,reason,flush) end
+            return
+        end
 		if self.streamTrace then self.streamTrace:finish(tostring(reason or "disconnected"),"unknown") end
 		originalDisconnect(instance, reason, flush)
 		self:_handleDisconnect(reason, flush)
 	end
 
+    if self.ownership then
+        for key,original in pairs(ownershipOriginals) do
+            local target=key=="send" and playback.slimproto or playback
+            if not self.ownershipHooks:record(target,key,original) then error("ownership hook recording failed") end
+        end
+    end
 	self.hookedPlayback = playback
 	self.log:info("StandaloneRadio: ICY and disconnect hooks installed")
 end
 
 
 function StreamPlayer:_begin(station, reconnect)
+	if self:_standbyFence() then return end
+    if self.ownership and not self.ownership:canStart() then return false end
     self.paused=false;self.episodeEOF=false;self.lastPosition=nil
     if station.episode then station.position_ms=0 end
 	if self.hlsMetadata then self.hlsMetadata:stop() end
@@ -936,6 +1005,7 @@ end
 
 
 function StreamPlayer:stop(state)
+    if self.ownership and not self.ownershipCleaning and not self.ownership:canStart() then return false end
 	-- A stopped Radio may resume while awake, until another source takes over.
 	if self.ownsPlayback then self.resumeAfterStop = state == nil or state == "STOPPED" end
 	-- Invalidate in-flight callbacks before cancellation can call them back.
@@ -975,6 +1045,7 @@ end
 
 
 function StreamPlayer:pause()
+    if self.ownership and not self.ownership:canStart() then return false end
     if not self.desiredStation or not self.desiredStation.episode then return self:stop() end
     if not self.playbackActive or self.paused then return end
     self.paused=true;decode:pauseAudio(0)
@@ -982,6 +1053,7 @@ function StreamPlayer:pause()
 end
 
 function StreamPlayer:play()
+    if self.ownership and not self.ownership:canStart() then return false end
     if self.paused and self.desiredStation and self.desiredStation.episode then
         self.paused=false;decode:resumeAudio();self:_notifyState(self.desiredStation,"PLAYING",false);return true
     end
@@ -1002,4 +1074,49 @@ end
 
 function StreamPlayer:isPlaying()
 	return self.playbackActive and not self.paused
+end
+
+-- Manual opt-in only; attach before this instance installs any legacy hooks.
+function StreamPlayer:configureOwnership(gate)
+    if self.ownership or self.hookedPlayback or self.ownsPlayback then return false end
+    self.ownership=gate
+    self.ownershipHooks=require("applets.StandaloneBase.OwnershipHooks").new()
+    return true
+end
+function StreamPlayer:ownershipFence()
+    local wasOwned=self.ownsPlayback
+    self.generation=self.generation+1
+    self.ownershipStation=self.desiredStation or self.lastStation
+    self.desiredStation=nil
+    for _,key in pairs({"watchdogTimer","audioRecoveryTimer","powerKeepaliveTimer"}) do
+        if self[key] then self[key]:stop();self[key]=nil end
+    end
+    self.ownershipCleaning=true
+    local ok=pcall(function()
+        if wasOwned then self:stop() else
+            self:_cancelReconnect();self.pendingStation=nil;self.playbackActive=false
+            if self.hlsMetadata then self.hlsMetadata:stop() end
+            if self.playlistResolver and self.playlistResolver.cancelPlaylist then self.playlistResolver:cancelPlaylist() end
+        end
+    end)
+    self.ownershipCleaning=false
+    return ok
+end
+function StreamPlayer:ownershipReleaseHooks()
+    if not self.ownershipHooks:restore() then return false end
+    self.hookedPlayback=nil
+    self.ownershipHooks=require("applets.StandaloneBase.OwnershipHooks").new()
+    return true
+end
+function StreamPlayer:ownershipGranted()
+    self:_startWatchdog();self:_startAudioRecovery();self:_startPowerKeepalive()
+    -- Retain selection; restarting remains a fresh user play action.
+    self.desiredStation=self.ownershipStation or self.lastStation
+end
+
+function StreamPlayer:createOwnership(options)
+    options=require("applets.StandaloneBase.OwnershipRuntime").options(options)
+    if not options then return nil end
+    options.player=self
+    return require("applets.StandaloneRadio.RadioOwnership").new(options)
 end

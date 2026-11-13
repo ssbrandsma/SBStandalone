@@ -11,7 +11,7 @@ decode={status=function() return decoderStatus end,pauseAudio=function() calls.p
  resumeAudio=function() calls.resume=(calls.resume or 0)+1 end}
 local function timer() return {start=function() end,stop=function() end} end
 assert(load('local DECODE_UNDERRUN=2;local WATCHDOG_STALL_POLLS=2;local reconnectDelays={2000};local Timer=...;local UrlTransport={isHttps=function() return false end};local localPlayback=function() return {stream=true} end;local decode=decode;local StreamPlayer=StreamPlayer;'
- ..method('_audioRecoveryTick','_watchdogTick')..method('_watchdogTick','_cancelReconnect')
+ ..method('_isStandby','_isCurrent')..method('_audioRecoveryTick','_watchdogTick')..method('_watchdogTick','_cancelReconnect')
  ..method('_installHooks','_begin')..method('_scheduleReconnect','_handleDisconnect')..method('_handleDisconnect','_finishRedirectProbe')
  ..method('stop','stopConnecting')..method('pause','play')..method('play','getCurrentStation'))) (timer)
 local player=setmetatable({generation=1,stationGeneration=1,retryIndex=1,_isCurrent=function() return true end,ownsPlayback=true,playbackActive=true,

@@ -64,3 +64,17 @@ assembly have host regression coverage but were not redeployed for this PR.
 Baby hardware and complete external-LMS coexistence remain to be checked.
 The awake Stop/Pause -> Play correction has host regression coverage and has
 not been deployed to the Touch for hardware validation.
+
+## Integration with standby recovery and opt-in ownership
+
+The power-off hook is backed by soft-power checks in recovery ticks, stream
+starts and asynchronous callback guards. These retain the last station while
+clearing pending playback intent; waking the UI alone cannot start audio.
+
+When playback ownership is explicitly enabled, the local player's power hook
+is recorded with the stream hooks and restored during ownership release.
+Retired power callbacks forward native power arguments without stopping a new
+owner's playback. The combined standby fixture covers restoration, reinstallation
+and callbacks after epoch changes or revocation. Ownership remains opt-in and
+requires Standalone Base's OwnershipRuntime, OwnershipBinding and OwnershipHooks
+modules; ordinary startup does not load or enable that integration.

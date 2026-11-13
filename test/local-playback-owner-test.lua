@@ -9,7 +9,7 @@ local current,localPlayer,selections=orphan,actual,0
 local Player={getLocalPlayer=function() return localPlayer end,
     getCurrentPlayer=function() return current end,
     setCurrentPlayer=function(_,player) current=player;selections=selections+1 end}
-local prototype={}
+local prototype={_standbyFence=function() return false end}
 assert(loadstring('local Player,StreamPlayer=...; '..localPlayback..begin))(Player,prototype)
 local instance=setmetatable({generation=0,stationGeneration=0,callbacks={onSelected=function() end},
     log={info=function() end,warn=function() end},

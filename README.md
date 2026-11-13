@@ -87,6 +87,10 @@ With Extended Storage enabled, install Standalone Base **0.5.7 or newer**
 before Standalone Radio 0.9.9. Base fixes the stock installer's destination
 selection and ZIP extraction so the applet appears in the Home menu.
 
+Radio **0.9.19** prevents standby recovery timers and queued reconnects from
+restarting audio. Waking the UI keeps playback stopped until an explicit Play.
+Playback ownership support remains opt-in.
+
 Radio **0.9.14** adds generic RSS podcasts with bounded streaming parsing, finite playback,
 pause/resume and episode artwork and Now Playing metadata. See [podcast support](docs/PODCAST_RSS.md).
 
