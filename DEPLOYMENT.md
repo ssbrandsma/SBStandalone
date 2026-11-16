@@ -44,7 +44,7 @@ Work from `<APPLET_REPOSITORY_PATH>`.
    `TrackArtwork.lua`, and `ArtworkRequest.lua`.
 
 4. Update the release description in `scripts/build-applet-package.ps1`.
-   The script places it in both generated XML entries.
+   The script places it in all three generated XML entries.
 
 5. Parse all Lua files and check the patch.
 
@@ -90,14 +90,14 @@ $Archive.Dispose()
 
 ## 3. Update Local Bootstrap Metadata
 
-In `<BOOTSTRAP_REPOSITORY_PATH>`, update only the two
-`StandaloneRadio` entries (`baby` and `fab4`) in:
+In `<BOOTSTRAP_REPOSITORY_PATH>`, update only the three
+`StandaloneRadio` entries (`baby`, `fab4`, and `rg35xxh`) in:
 
 - `config.json`
 - `config.example.json`
 - `merged-extensions.xml`
 
-For both targets, update the version, release description, ZIP SHA-1, and URL:
+For all three targets, update the version, release description, ZIP SHA-1, and URL:
 
 ```text
 http://<VPS_HOST>/sbstandalone/StandaloneRadio-<version>.zip
@@ -122,8 +122,8 @@ rg -n "StandaloneRadio-$Version|$Sha" `
     "$Bootstrap\merged-extensions.xml"
 ```
 
-Each metadata file must contain two matching StandaloneRadio entries, one for
-`baby` and one for `fab4`.
+Each metadata file must contain three matching StandaloneRadio entries, one each for
+`baby`, `fab4`, and `rg35xxh`.
 
 ## 4. Stage Files On The VPS
 
@@ -248,9 +248,9 @@ Final acceptance criteria:
 
 - All three public URLs return HTTP `200`.
 - The public ZIP SHA-1 equals the local build SHA-1.
-- Both XML endpoints contain exactly two StandaloneRadio entries.
-- Both entries use the new version, URL, and SHA-1.
-- The live container config contains the same two entries.
+- Both XML endpoints contain exactly three StandaloneRadio entries.
+- All three entries use the new version, URL, and SHA-1.
+- The live container config contains the same three entries.
 - The container remains running and logs normal listeners.
 
 ## 7. Optional Radio Smoke Test

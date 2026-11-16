@@ -17,7 +17,7 @@ New installations have no preloaded stations. Assign any Radio Browser station t
 
 ## Requirements
 
-- A Logitech Squeezebox Radio running stock SqueezePlay firmware. This has been tested on firmware `7.7.3 r16676` (`baby`). Other SqueezePlay-based players may work, but are not yet verified.
+- A Logitech Squeezebox Radio running stock SqueezePlay firmware. This has been tested on firmware `7.7.3 r16676` (`baby`). The package is advertised for `baby` (Squeezebox Radio), `fab4` (Squeezebox Touch), and `rg35xxh` (RG35XX H). All three targets share the same Lua package; playback integration depends on the SqueezePlay port.
 - The radio connected to your network and reachable by IP address.
 - Root SSH access to the radio. This project uses the radio's legacy Dropbear SSH service.
 - A Windows machine with PowerShell and the OpenSSH `ssh` and `scp` clients available. Windows 10/11 normally include them.
@@ -236,7 +236,7 @@ If deployment cannot connect, first confirm the radio's current DHCP address, Wi
 
 ### Applet Does Not Appear
 
-Confirm LMS can fetch and parse `extensions.xml`, then restart or reload LMS after adding the repository. Verify the Radio is connected to that LMS and that the entry has `target="baby"`, `minTarget="7.7"`, and `maxTarget="*"`. The installer requests the applet list from its connected LMS, not directly from the repository URL.
+Confirm LMS can fetch and parse `extensions.xml`, then restart or reload LMS after adding the repository. Verify the Radio is connected to that LMS and that the entry has the matching hardware target (`baby`, `fab4`, or `rg35xxh`), `minTarget="7.7"`, and `maxTarget="*"`. The installer requests the applet list from its connected LMS, not directly from the repository URL.
 
 ### Download Fails
 

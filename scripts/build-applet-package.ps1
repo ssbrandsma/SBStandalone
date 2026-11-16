@@ -171,6 +171,14 @@ try {
       <url>$(Escape-Xml $zipUrl)</url>
       <sha>$sha1</sha>
     </applet>
+    <applet name="StandaloneRadio" version="$(Escape-Xml $version)" target="rg35xxh" minTarget="7.7" maxTarget="*">
+      <title lang="EN">Standalone Radio</title>
+      <desc lang="EN">Standalone internet radio playback for RG35XX H.</desc>
+      <changes lang="EN">Fix standby and explicit Play resume, respect other sources controls, remember the last station, and prevent local Base synchronization reconnect loops.</changes>
+      <creator>Sjoerd Brandsma</creator>
+      <url>$(Escape-Xml $zipUrl)</url>
+      <sha>$sha1</sha>
+    </applet>
   </applets>
 </extensions>
 "@
@@ -181,10 +189,10 @@ try {
 
 	[xml]$parsedXml = Get-Content -LiteralPath $repositoryPath -Raw
 	$applets = @($parsedXml.extensions.applets.applet)
-	if ($applets.Count -ne 2) {
-		Fail "generated extensions.xml must contain exactly two StandaloneRadio targets"
+	if ($applets.Count -ne 3) {
+		Fail "generated extensions.xml must contain exactly three StandaloneRadio targets"
 	}
-	foreach ($target in @("baby", "fab4")) {
+	foreach ($target in @("baby", "fab4", "rg35xxh")) {
 		$targetApplet = @($applets | Where-Object { $_.target -eq $target })
 		if ($targetApplet.Count -ne 1 -or $targetApplet[0].name -ne "StandaloneRadio" -or $targetApplet[0].version -ne $version -or $targetApplet[0].sha -ne $sha1 -or $targetApplet[0].url -ne $zipUrl) {
 			Fail "generated extensions.xml did not round-trip with the expected $target applet metadata"
